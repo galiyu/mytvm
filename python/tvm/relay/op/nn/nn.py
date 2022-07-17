@@ -2792,6 +2792,10 @@ def contrib_my_col2im(
         out_layout,
         out_dtype,
     )
+    
+def contrib_my_matmul(tensor_a, tensor_b, units=None, out_dtype="", transpose_a=False, transpose_b=False):
+    return _make.contrib_my_matmul(tensor_a, tensor_b, units, out_dtype, transpose_a, transpose_b)
+    
 
 
 def contrib_conv2d_nchwc(

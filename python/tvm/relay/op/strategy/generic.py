@@ -413,7 +413,7 @@ def conv2d_my_gemm_strategy(attrs, inputs, out_type, target):
     )
     return strategy
 
-# conv2d_my_gemm
+# conv2d_my_col2im
 @override_native_generic_func("conv2d_my_col2im_strategy")
 def conv2d_my_col2im_strategy(attrs, inputs, out_type, target):
     """conv2d_my_col2im_strategy"""
@@ -889,6 +889,17 @@ def matmul_strategy(attrs, inputs, out_type, target):
     )
     return strategy
 
+# conv2d_my_matmul
+@override_native_generic_func("contrib_my_matmul_strategy")
+def contrib_my_matmul_strategy(attrs, inputs, out_type, target):
+    """contrib_my_matmul_strategy"""
+    strategy = _op.OpStrategy()
+    strategy.add_implementation(
+        wrap_compute_matmul(topi.cuda.compute_my_matmul),
+        wrap_topi_schedule(topi.generic.schedule_matmul),
+        name="contrib_my_matmul.generic",
+    )
+    return strategy
 
 # dense
 def wrap_compute_dense(

@@ -198,6 +198,40 @@ RELAY_REGISTER_OP("nn.matmul")
 
 // ------------------- relay.nn.matmul
 
+// ------------------- relay.nn.contrib_my_matmul
+TVM_REGISTER_NODE_TYPE(MatmulAttrs);
+
+Expr MakeMyMatmul(Expr tensor_a, Expr tensor_b, IndexExpr units, DataType out_dtype, bool transpose_a,
+                bool transpose_b) {
+  auto attrs = make_object<MatmulAttrs>();
+  attrs->units = units;
+  attrs->out_dtype = out_dtype;
+  attrs->transpose_a = transpose_a;
+  attrs->transpose_b = transpose_b;
+  static const Op& matmul_op = Op::Get("nn.contrib_my_matmul");
+  return Call(matmul_op, {tensor_a, tensor_b}, Attrs(attrs), {});
+}
+
+TVM_REGISTER_GLOBAL("relay.op.nn._make.contrib_my_matmul").set_body_typed(MakeMyMatmul);
+
+RELAY_REGISTER_OP("nn.contrib_my_matmul")
+    .describe(R"code(Applies a linear transformation: :math:`C = A * B`. A & B can be transposed.
+
+- **tensor_a**: `(x1, x2, ..., xn, input_dim)` or `(x1, x2, ..., input_dim, xn)`
+- **tensor_b**: `(input_dim, units)` or `(units, input_dim)`
+- **out**: `(x1, x2, ..., xn, units)`.
+
+)code" TVM_ADD_FILELINE)
+    .set_attrs_type<MatmulAttrs>()
+    .set_num_inputs(2)
+    .add_argument("tensor_a", "nD Tensor", "The first input Tensor.")
+    .add_argument("tensor_b", "2D Tensor", "The second input Tensor.")
+    .set_support_level(1)
+    .add_type_rel("Matmul", MatmulRel<MatmulAttrs>)
+    .set_attr<TOpPattern>("TOpPattern", kOutEWiseFusable);
+
+// ------------------- relay.nn.contrib_my_matmul
+
 // ------------------- relay.nn.dense
 TVM_REGISTER_NODE_TYPE(DenseAttrs);
 

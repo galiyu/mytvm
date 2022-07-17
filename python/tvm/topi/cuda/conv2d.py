@@ -79,7 +79,7 @@ def my_tvm_gemm_temp(a, b, c, p_N, p_C,p_K, p_P, p_Q, p_KH, p_KW, p_SH, p_SW, p_
     tvm.nd.array( np.array(out_C_Z).astype("float32").reshape(p_K, p_P, p_Q, p_N) ).copyto(c)
 
 @tvm.register_func("tvm.contrib.my_tvm_col2im_temp")
-def my_tvm_col2im(a, b, p_N, p_C,p_K, p_P, p_Q, p_KH, p_KW, p_SH, p_SW, p_L, p_R, p_T, p_B):
+def my_tvm_col2im_temp(a, b, p_N, p_C,p_K, p_P, p_Q, p_KH, p_KW, p_SH, p_SW, p_L, p_R, p_T, p_B):
     _Lib = ctypes.CDLL("/root/wmma/lib_col2im/libcol2im.so", ctypes.RTLD_GLOBAL)
     
     out_C = a.numpy().flatten().astype(c_float)
@@ -89,6 +89,19 @@ def my_tvm_col2im(a, b, p_N, p_C,p_K, p_P, p_Q, p_KH, p_KW, p_SH, p_SW, p_L, p_R
     
     _Lib.col2im_api(out_C_Z, out_C_col2im_Z, p_N, p_C, p_K, p_P, p_Q, p_KH, p_KW, p_SH, p_SW, p_L, p_R, p_T, p_B )
     tvm.nd.array( np.array(out_C_col2im_Z).astype("float32").reshape(p_K, p_P, p_Q, p_N) ).copyto(b)
+
+@tvm.register_func("tvm.contrib.my_tvm_matmul_temp")
+def my_tvm_matmul_temp(a, b, c, m, k, n):
+    _Lib = ctypes.CDLL("/root/wmma/lib_wmma/libwmmaapi.so", ctypes.RTLD_GLOBAL)
+
+    A_data = a.numpy().flatten('c').astype(c_double)
+    B_data = b.numpy().flatten('f').astype(c_double)
+    C_data = np.random.uniform(-1, 1, m*n).astype(c_float)
+    A = (ctypes.c_double*len(A_data))(*A_data)
+    B = (ctypes.c_double*len(B_data))(*B_data)
+    C = (ctypes.c_float*len(C_data))(*C_data)
+    _Lib.wmma_api(A, B, C, m, n, k)
+    tvm.nd.array( np.array(C).astype("float64").reshape(m,n) ).copyto(c)
 
 def compute_my_im2col(
     data, kernel, strides, padding, dilation, groups=1, layout="NHWC", out_dtype="float32"
@@ -174,6 +187,21 @@ def compute_my_col2im(
     )
     return out
 
+def compute_my_matmul(A, B, units=None, out_dtype="", transpose_a=False, transpose_b=False):
+    m, k = get_const_tuple(A.shape)
+    _, n = get_const_tuple(B.shape)
+    
+    
+    out = te.extern(
+        [m, n],
+        [A, B],
+        lambda ins, outs: tvm.tir.call_packed(
+            "tvm.contrib.my_tvm_matmul_temp", ins[0], ins[1], outs[0],
+            m, k, n
+        ),
+        name = "compute_my_matmul",
+    )
+    return out
 
 @autotvm.register_topi_compute("conv2d_cudnn.cuda")
 def conv2d_cudnn(
