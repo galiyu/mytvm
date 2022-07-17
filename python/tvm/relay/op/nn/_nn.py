@@ -743,6 +743,24 @@ reg.register_strategy(
     strategy.conv2d_gemm_without_weight_transform_strategy,
 )
 
+# conv2d_im2col related operators
+reg.register_strategy(
+    "nn.contrib_my_im2col",
+    strategy.conv2d_my_im2col_strategy,
+)
+
+# conv2d_gemm related operators
+reg.register_strategy(
+    "nn.contrib_my_gemm",
+    strategy.conv2d_my_gemm_strategy,
+)
+
+# conv2d_gemm related operators
+reg.register_strategy(
+    "nn.contrib_my_col2im",
+    strategy.conv2d_my_col2im_strategy,
+)
+
 
 @reg.register_compute("nn.contrib_conv2d_gemm_weight_transform")
 def compute_contrib_conv2d_gemm_weight_transform(attrs, inputs, out_dtype):

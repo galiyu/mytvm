@@ -389,6 +389,42 @@ def conv2d_gemm_without_weight_transform_strategy(attrs, inputs, out_type, targe
     """conv2d_gemm_without_weight_transfrom generic strategy"""
     raise ValueError("No generic implemenation for conv2d_gemm_without_weight_transform")
 
+# conv2d_my_im2col
+@override_native_generic_func("conv2d_my_im2col_strategy")
+def conv2d_my_im2col_strategy(attrs, inputs, out_type, target):
+    """conv2d_my_im2col_strategy"""
+    strategy = _op.OpStrategy()
+    strategy.add_implementation(
+        wrap_compute_conv2d(topi.cuda.compute_my_im2col),
+        wrap_topi_schedule(topi.generic.schedule_group_conv2d_nhwc),
+        name="conv2d_my_im2col_strategy.generic",
+    )
+    return strategy
+
+# conv2d_my_gemm
+@override_native_generic_func("conv2d_my_gemm_strategy")
+def conv2d_my_gemm_strategy(attrs, inputs, out_type, target):
+    """conv2d_my_gemm_strategy"""
+    strategy = _op.OpStrategy()
+    strategy.add_implementation(
+        wrap_compute_conv2d(topi.cuda.compute_my_gemm),
+        wrap_topi_schedule(topi.generic.schedule_group_conv2d_nhwc),
+        name="conv2d_my_gemm_strategy.generic",
+    )
+    return strategy
+
+# conv2d_my_gemm
+@override_native_generic_func("conv2d_my_col2im_strategy")
+def conv2d_my_col2im_strategy(attrs, inputs, out_type, target):
+    """conv2d_my_col2im_strategy"""
+    strategy = _op.OpStrategy()
+    strategy.add_implementation(
+        wrap_compute_conv2d(topi.cuda.compute_my_col2im),
+        wrap_topi_schedule(topi.generic.schedule_group_conv2d_nhwc),
+        name="conv2d_my_col2im_strategy.generic",
+    )
+    return strategy
+
 
 # conv2d_winograd_weight_transform
 @generic_func

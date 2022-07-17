@@ -46,6 +46,134 @@ def schedule_conv2d_nchw(cfg, outs):
     traverse_inline(s, outs[0].op, _callback)
     return s
 
+import tvm
+from tvm import te,topi
+import numpy as np
+import ctypes
+from ctypes import *
+@tvm.register_func("tvm.contrib.my_tvm_im2col_temp")
+def my_tvm_im2col_temp(a, b, p_N, p_C, p_H, p_W, p_K, p_P, p_Q, p_KH, p_KW, p_SH, p_SW, p_L, p_R, p_T, p_B):
+    _Lib = ctypes.CDLL("/root/wmma/lib_im2col/libim2col.so", ctypes.RTLD_GLOBAL)
+
+    data_A = a.numpy().flatten().astype(c_float)
+    data_B = np.random.uniform(-1,1, p_C*p_KH*p_KW*p_N*p_P*p_Q).astype(c_float)
+    data_A_Z = (ctypes.c_float*len(data_A))(*data_A)
+    data_B_Z = (ctypes.c_float*len(data_B))(*data_B)
+
+    _Lib.im2col_api(data_A_Z, data_B_Z, p_N, p_C, p_H, p_W, p_K, p_P, p_Q, p_KH, p_KW, p_SH, p_SW, p_L, p_R, p_T, p_B )
+    tvm.nd.array( np.array(data_B_Z).astype("float32").reshape(p_C, p_KH, p_KW, p_N, p_P, p_Q) ).copyto(b)
+
+@tvm.register_func("tvm.contrib.my_tvm_gemm_temp")
+def my_tvm_gemm_temp(a, b, c, p_N, p_C,p_K, p_P, p_Q, p_KH, p_KW, p_SH, p_SW, p_L, p_R, p_T, p_B ):
+    _Lib = ctypes.CDLL("/root/wmma/lib_gemm_cublas/libgemmcublas.so", ctypes.RTLD_GLOBAL)
+    
+    data_A_im2col = a.numpy().flatten().astype(c_float)
+    kernel_B = b.numpy().flatten().astype(c_float)
+    out_C = np.random.uniform(-1,1, p_N*p_P*p_Q*p_K).astype(c_float)
+    
+    data_A_im2col_Z = (ctypes.c_float*len(data_A_im2col))(*data_A_im2col)
+    kernel_B_Z = (ctypes.c_float*len(kernel_B))(*kernel_B)
+    out_C_Z = (ctypes.c_float*len(out_C))(*out_C)
+    
+    _Lib.gemm_cublas_api(data_A_im2col_Z, kernel_B_Z, out_C_Z, p_N, p_C, p_K, p_P, p_Q, p_KH, p_KW, p_SH, p_SW, p_L, p_R, p_T, p_B );
+    tvm.nd.array( np.array(out_C_Z).astype("float32").reshape(p_K, p_P, p_Q, p_N) ).copyto(c)
+
+@tvm.register_func("tvm.contrib.my_tvm_col2im_temp")
+def my_tvm_col2im(a, b, p_N, p_C,p_K, p_P, p_Q, p_KH, p_KW, p_SH, p_SW, p_L, p_R, p_T, p_B):
+    _Lib = ctypes.CDLL("/root/wmma/lib_col2im/libcol2im.so", ctypes.RTLD_GLOBAL)
+    
+    out_C = a.numpy().flatten().astype(c_float)
+    out_C_col2im = np.random.uniform(-1, 1, p_N*p_P*p_Q*p_K).astype(c_float)  
+    out_C_Z = (ctypes.c_float*len(out_C))(*out_C)
+    out_C_col2im_Z = (ctypes.c_float*len(out_C_col2im))(*out_C_col2im)
+    
+    _Lib.col2im_api(out_C_Z, out_C_col2im_Z, p_N, p_C, p_K, p_P, p_Q, p_KH, p_KW, p_SH, p_SW, p_L, p_R, p_T, p_B )
+    tvm.nd.array( np.array(out_C_col2im_Z).astype("float32").reshape(p_K, p_P, p_Q, p_N) ).copyto(b)
+
+def compute_my_im2col(
+    data, kernel, strides, padding, dilation, groups=1, layout="NHWC", out_dtype="float32"
+):
+    N, H, W, C = get_const_tuple(data.shape)
+    print((N, H, W, C))
+    K, _, KH, KW = get_const_tuple(kernel.shape)
+    
+    stride_h, stride_w = (strides, strides) if isinstance(strides, int) else strides
+    dilation_h, dilation_w = (dilation, dilation) if isinstance(dilation, int) else dilation
+    KH_dilated = (KH - 1) * dilation_h + 1
+    KW_dilated = (KW - 1) * dilation_h + 1
+    SH = stride_h
+    SW = stride_w
+
+    pt, pl, pb, pr = get_pad_tuple(padding, (KH_dilated, KW_dilated))
+    
+    P = (H + pt + pb - KH) // stride_h + 1
+    Q = (W + pl + pr - KW) // stride_w + 1
+    
+    out = te.extern(
+        [C, KH, KW, N, P, Q],   # CHWNPQ
+        [data],
+        lambda ins, outs: tvm.tir.call_packed(
+            "tvm.contrib.my_tvm_im2col_temp", ins[0], outs[0],
+            N, C, H, W, K, P, Q, KH, KW, SH, SW, pl, pr, pt, pb
+        ),
+        name="compute_my_im2col",
+    )
+    return out
+
+def compute_my_gemm(
+    data, kernel, strides, padding, dilation, groups=1, layout="NHWC", out_dtype="float32"
+):
+    C, KH, KW, N, P, Q= get_const_tuple(data.shape)
+    print((C, KH, KW, N, P, Q))
+    K, _, KH, KW = get_const_tuple(kernel.shape)
+    
+    stride_h, stride_w = (strides, strides) if isinstance(strides, int) else strides
+    dilation_h, dilation_w = (dilation, dilation) if isinstance(dilation, int) else dilation
+    KH_dilated = (KH - 1) * dilation_h + 1
+    KW_dilated = (KW - 1) * dilation_h + 1
+    SH = stride_h
+    SW = stride_w
+
+    pt, pl, pb, pr = get_pad_tuple(padding, (KH_dilated, KW_dilated))
+    
+    out = te.extern(
+        [N, P, Q, K],   # CHWNPQ
+        [data, kernel],
+        lambda ins, outs: tvm.tir.call_packed(
+            "tvm.contrib.my_tvm_gemm_temp", ins[0], ins[1], outs[0],
+            N, C, K, P, Q, KH, KW, SH, SW, pl, pr, pt, pb
+        ),
+        name="compute_my_gemm",
+    )
+    return out
+
+def compute_my_col2im(
+    data, kernel, strides, padding, dilation, groups=1, layout="NHWC", out_dtype="float32"
+):
+    N, P, Q, K= get_const_tuple(data.shape)
+    print((N, P, Q, K))
+    K, C, KH, KW = get_const_tuple(kernel.shape)
+    
+    stride_h, stride_w = (strides, strides) if isinstance(strides, int) else strides
+    dilation_h, dilation_w = (dilation, dilation) if isinstance(dilation, int) else dilation
+    KH_dilated = (KH - 1) * dilation_h + 1
+    KW_dilated = (KW - 1) * dilation_h + 1
+    SH = stride_h
+    SW = stride_w
+
+    pt, pl, pb, pr = get_pad_tuple(padding, (KH_dilated, KW_dilated))
+    
+    out = te.extern(
+        [N, P, Q, K],   # CHWNPQ
+        [data, kernel],
+        lambda ins, outs: tvm.tir.call_packed(
+            "tvm.contrib.my_tvm_col2im_temp", ins[0], outs[0],
+            N, C, K, P, Q, KH, KW, SH, SW, pl, pr, pt, pb
+        ),
+        name="compute_my_col2im",
+    )
+    return out
+
 
 @autotvm.register_topi_compute("conv2d_cudnn.cuda")
 def conv2d_cudnn(
