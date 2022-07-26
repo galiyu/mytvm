@@ -5282,6 +5282,12 @@ def _get_convert_map(opset):
         "GlobalMaxPool": GlobalMaxPool.get_converter(opset),
         "BatchNormalization": BatchNorm.get_converter(opset),
         "InstanceNormalization": InstanceNorm.get_converter(opset),
+        # contribs
+        "Conv2d_im2col": Renamer("contrib_my_im2col"),
+        "Conv2d_gemm": Renamer("contrib_my_gemm"),
+        "Conv2d_col2im": Renamer("contrib_my_col2im"),
+        "Matmul_tensor_core": Renamer("contrib_my_matmul"),
+        
         # 'LpNormalization'
         "Dropout": AttrCvt("dropout", {"ratio": "rate"}, ignores=["is_test"]),
         "Flatten": Flatten.get_converter(opset),
