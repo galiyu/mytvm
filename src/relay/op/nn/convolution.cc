@@ -1465,6 +1465,15 @@ RELAY_REGISTER_OP("nn.contrib_conv2d_gemm_without_weight_transform")
 
 // relay.nn.contrib_conv2d_gemm_weight_transform
 
+
+/*****************************************************************
+******************************************************************
+******************************************************************
+My Convolution2D implement of Im2col, Gemm, Col2im
+******************************************************************
+******************************************************************
+******************************************************************/
+
 // relay.nn.contrib_my_im2col
 TVM_REGISTER_GLOBAL("relay.op.nn._make.contrib_my_im2col")
     .set_body_typed([](Expr data, Expr weight, Array<IndexExpr> strides, Array<IndexExpr> padding,
@@ -1481,26 +1490,26 @@ bool ContribIm2colRel(const Array<Type>& types, int num_inputs, const Attrs& att
   ICHECK_EQ(types.size(), 3);
   const auto* data = types[0].as<TensorTypeNode>();
   if (data == nullptr) return false;
-  static const Layout kNHWC("NHWC");
+  static const Layout kNCHW("NCHW");
   static const Layout kHWIO("HWIO");
 
   const auto* param = attrs.as<Conv2DAttrs>();
   ICHECK(param != nullptr);
-  const Layout in_layout(param->data_layout);
-  const Layout kernel_layout(param->kernel_layout);
+  // const Layout in_layout(param->data_layout);
+  // const Layout kernel_layout(param->kernel_layout);
 
-  const auto trans_in_layout = tir::BijectiveLayout(in_layout, kNHWC);
-  ICHECK(trans_in_layout.defined())
-      << "Conv only support input layouts that are convertible from NHWC."
-      << " But got " << in_layout;
+  // const auto trans_in_layout = tir::BijectiveLayout(in_layout, kNCHW);
+  // ICHECK(trans_in_layout.defined())
+  //     << "Conv only support input layouts that are convertible from NHWC."
+  //     << " But got " << in_layout;
 
-
-  Array<IndexExpr> dshape_nhwc = trans_in_layout.ForwardShape(data->shape);
-  IndexExpr N, H, W, C;
+  Array<IndexExpr> dshape_nhwc = data->shape;
+  IndexExpr N, C, H, W;
   N= dshape_nhwc[0];
-  H= dshape_nhwc[1];
-  W= dshape_nhwc[2];
-  C= dshape_nhwc[3];
+  C= dshape_nhwc[1];
+  H= dshape_nhwc[2];
+  W= dshape_nhwc[3];
+
   IndexExpr KH = param->kernel_size[0];
   IndexExpr KW = param->kernel_size[1];
   IndexExpr SH = param->strides[0];
@@ -1578,7 +1587,7 @@ bool ContribGemmRel(const Array<Type>& types, int num_inputs, const Attrs& attrs
   ICHECK_EQ(types.size(), 3);
   const auto* data = types[0].as<TensorTypeNode>();
   if (data == nullptr) return false;
-  static const Layout kNHWC("NHWC");
+  static const Layout kNCHW("NCHW");
   static const Layout kHWIO("HWIO");
 
   const auto* param = attrs.as<Conv2DAttrs>();
@@ -1586,7 +1595,7 @@ bool ContribGemmRel(const Array<Type>& types, int num_inputs, const Attrs& attrs
   const Layout in_layout(param->data_layout);
   const Layout kernel_layout(param->kernel_layout);
 
-  const auto trans_in_layout = tir::BijectiveLayout(in_layout, kNHWC);
+  const auto trans_in_layout = tir::BijectiveLayout(in_layout, kNCHW);
 
   Array<IndexExpr> dshape_nhwc = data->shape;
   IndexExpr C, KH, KW, N, P, Q;
@@ -1615,7 +1624,7 @@ bool ContribGemmRel(const Array<Type>& types, int num_inputs, const Attrs& attrs
   // NOTE: Do not check weight shape here!
 
   // dilation
-  Array<IndexExpr> oshape({N, P, Q, K});
+  Array<IndexExpr> oshape({N, K, P, Q});
 
   DataType out_dtype = param->out_dtype;
   if (out_dtype.bits() == 0) {
@@ -1677,31 +1686,15 @@ bool ContribCol2imRel(const Array<Type>& types, int num_inputs, const Attrs& att
   // const auto trans_in_layout = tir::BijectiveLayout(in_layout, kNHWC);
 
   Array<IndexExpr> dshape_nhwc = data->shape;
-  IndexExpr N, P, Q, K;
+  IndexExpr N, K, P, Q;
   N= dshape_nhwc[0];
-  P= dshape_nhwc[1];
-  Q= dshape_nhwc[2];
-  K= dshape_nhwc[3];
-
-  // IndexExpr K = param->channels;
-  
-  // IndexExpr SH = param->strides[0];
-  // IndexExpr SW = param->strides[1];
-
-  // IndexExpr channels, dilated_ksize_y, dilated_ksize_x;
-
-  // ICHECK(param->kernel_size.defined() && param->channels.defined())
-  //     << "The kernel size and channels of a Conv must be set or inferred by previous pass";
-
-  // ICHECK_EQ(param->kernel_size.size(), 2);
-  // ICHECK_EQ(param->dilation.size(), 2);
-  // dilated_ksize_y = 1 + (param->kernel_size[0] - 1) * param->dilation[0];
-  // dilated_ksize_x = 1 + (param->kernel_size[1] - 1) * param->dilation[1];
-
+  K= dshape_nhwc[1];
+  P= dshape_nhwc[2];
+  Q= dshape_nhwc[3];
   // NOTE: Do not check weight shape here!
 
   // dilation
-  Array<IndexExpr> oshape({N, P, Q, K});
+  Array<IndexExpr> oshape({N, K, P, Q});
 
   DataType out_dtype = param->out_dtype;
   if (out_dtype.bits() == 0) {

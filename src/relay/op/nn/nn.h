@@ -123,6 +123,36 @@ bool MatmulRel(const Array<Type>& types, int num_inputs, const Attrs& attrs,
 }
 
 template <typename AttrType>
+bool MataddRel(const Array<Type>& types, int num_inputs, const Attrs& attrs,
+               const TypeReporter& reporter) {
+  ICHECK_EQ(types.size(), 3);
+  const auto* tensor_a = types[0].as<TensorTypeNode>();
+  const auto* tensor_b = types[1].as<TensorTypeNode>();
+  if (tensor_a == nullptr) return false;
+  ICHECK(static_cast<int>(tensor_a->shape.size()) != 0);
+
+  const AttrType* param = attrs.as<AttrType>();
+  ICHECK(param != nullptr);
+  TensorType meta_schedule_tensor_b{nullptr};
+  if (param->meta_schedule_original_shape.size() > 0) {
+    meta_schedule_tensor_b = TensorType(param->meta_schedule_original_shape,
+                                        tensor_b == nullptr ? tensor_a->dtype : tensor_b->dtype);
+    tensor_b = meta_schedule_tensor_b.get();
+  }
+
+  const Array<tvm::PrimExpr>& dshape = tensor_a->shape;
+  Array<tvm::PrimExpr> oshape = dshape;
+
+  DataType out_dtype = param->out_dtype;
+  if (out_dtype.bits() == 0) {
+    out_dtype = tensor_a->dtype;
+  }
+  // assign output type
+  reporter->Assign(types[2], TensorType(oshape, out_dtype));
+  return true;
+}
+
+template <typename AttrType>
 bool BatchMatmulRel(const Array<Type>& types, int num_inputs, const Attrs& attrs,
                     const TypeReporter& reporter) {
   ICHECK_EQ(types.size(), 3);

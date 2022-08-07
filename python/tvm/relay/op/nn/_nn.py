@@ -766,6 +766,11 @@ reg.register_strategy(
     "nn.contrib_my_matmul",
     strategy.contrib_my_matmul_strategy,
 )
+# my matadd related operators
+reg.register_strategy(
+    "nn.contrib_my_matadd",
+    strategy.contrib_my_matadd_strategy,
+)
 
 @reg.register_compute("nn.contrib_conv2d_gemm_weight_transform")
 def compute_contrib_conv2d_gemm_weight_transform(attrs, inputs, out_dtype):

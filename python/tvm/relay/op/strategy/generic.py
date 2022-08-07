@@ -876,6 +876,35 @@ def wrap_compute_matmul(
 
     return _compute_matmul
 
+def wrap_compute_matadd(
+    topi_compute,
+    need_auto_scheduler_layout=False,
+    need_meta_schedule_layout=False,
+):
+    """wrap matadd topi compute"""
+
+    def _compute_matadd(attrs, inputs, out_type):
+        """Compute definition of matmul"""
+        out_dtype = attrs.out_dtype
+        out_dtype = inputs[0].dtype if out_dtype == "" else out_dtype
+        args = [
+            inputs[0],
+            inputs[1],
+            None,
+            out_dtype,
+            attrs.transpose_a,
+            attrs.transpose_b,
+        ]
+        if need_auto_scheduler_layout:
+            args.append(get_auto_scheduler_rewritten_layout(attrs))
+        elif need_meta_schedule_layout:
+            args.append("")
+            args.append(get_meta_schedule_original_shape(attrs))
+        args[1] = copy_if_identical(inputs[0], inputs[1])
+        return [topi_compute(*args)]
+
+    return _compute_matadd
+
 
 @override_native_generic_func("matmul_strategy")
 def matmul_strategy(attrs, inputs, out_type, target):
@@ -889,7 +918,7 @@ def matmul_strategy(attrs, inputs, out_type, target):
     )
     return strategy
 
-# conv2d_my_matmul
+# contrib_my_matmul
 @override_native_generic_func("contrib_my_matmul_strategy")
 def contrib_my_matmul_strategy(attrs, inputs, out_type, target):
     """contrib_my_matmul_strategy"""
@@ -898,6 +927,17 @@ def contrib_my_matmul_strategy(attrs, inputs, out_type, target):
         wrap_compute_matmul(topi.cuda.compute_my_matmul),
         wrap_topi_schedule(topi.generic.schedule_matmul),
         name="contrib_my_matmul.generic",
+    )
+    return strategy
+# contrib_my_matadd
+@override_native_generic_func("contrib_my_matadd_strategy")
+def contrib_my_matadd_strategy(attrs, inputs, out_type, target):
+    """contrib_my_matadd_strategy"""
+    strategy = _op.OpStrategy()
+    strategy.add_implementation(
+        wrap_compute_matadd(topi.cuda.compute_my_matadd),
+        wrap_topi_schedule(topi.generic.schedule_matmul),
+        name="contrib_my_matadd.generic",
     )
     return strategy
 
