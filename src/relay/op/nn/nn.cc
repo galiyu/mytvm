@@ -232,6 +232,241 @@ RELAY_REGISTER_OP("nn.contrib_my_matmul")
 
 // ------------------- relay.nn.contrib_my_matmul
 
+// ------------------- relay.nn.contrib_my_im2col
+TVM_REGISTER_NODE_TYPE(Conv2DAttrs);
+
+Expr MakeMyIm2col(Expr data, Expr weight, Array<IndexExpr> strides, Array<IndexExpr> padding,
+                       Array<IndexExpr> dilation, int groups, IndexExpr channels,
+                       Array<IndexExpr> kernel_size, tvm::String data_layout,
+                       tvm::String kernel_layout, tvm::String out_layout, DataType out_dtype) {
+  auto attrs = make_object<Conv2DAttrs>();
+  attrs->strides = std::move(strides);
+  attrs->padding = std::move(padding);
+  attrs->dilation = std::move(dilation);
+  attrs->groups = groups;
+  attrs->channels = std::move(channels);
+  attrs->kernel_size = std::move(kernel_size);
+  attrs->data_layout = std::move(data_layout);
+  attrs->kernel_layout = std::move(kernel_layout);
+  attrs->out_layout = std::move(out_layout);
+  attrs->out_dtype = std::move(out_dtype);
+  static const Op& im2col_op = Op::Get("nn.contrib_my_im2col");
+  return Call(im2col_op, {data, weight}, Attrs(attrs), {});
+}
+
+TVM_REGISTER_GLOBAL("relay.op.nn._make.contrib_my_im2col").set_body_typed(MakeMyIm2col);
+
+bool ContribIm2colRel(const Array<Type>& types, int num_inputs, const Attrs& attrs,
+                   const TypeReporter& reporter) {
+  ICHECK_EQ(types.size(), 3);
+  const auto* data = types[0].as<TensorTypeNode>();
+  if (data == nullptr) return false;
+  static const Layout kNCHW("NCHW");
+  static const Layout kHWIO("HWIO");
+
+  const auto* param = attrs.as<Conv2DAttrs>();
+  ICHECK(param != nullptr);
+
+  Array<IndexExpr> dshape_nhwc = data->shape;
+  IndexExpr N, C, H, W;
+  N= dshape_nhwc[0];
+  C= dshape_nhwc[1];
+  H= dshape_nhwc[2];
+  W= dshape_nhwc[3];
+
+  IndexExpr KH = param->kernel_size[0];
+  IndexExpr KW = param->kernel_size[1];
+  IndexExpr SH = param->strides[0];
+  IndexExpr SW = param->strides[1];
+
+  IndexExpr pad_h, pad_w;
+  GetPaddingHeightWidth(param->padding, &pad_h, &pad_w);
+  
+  IndexExpr P = (H + pad_h - KH) /SH + 1;
+  IndexExpr Q = (W + pad_w - KW) /SW + 1;
+
+  IndexExpr channels, dilated_ksize_y, dilated_ksize_x;
+
+  ICHECK(param->kernel_size.defined() && param->channels.defined())
+      << "The kernel size and channels of a Conv must be set or inferred by previous pass";
+
+  ICHECK_EQ(param->kernel_size.size(), 2);
+  ICHECK_EQ(param->dilation.size(), 2);
+
+  channels = param->channels; // output channels
+  Array<IndexExpr> oshape({N, P, Q, C, KH, KW});
+
+  DataType out_dtype = param->out_dtype;
+  if (out_dtype.bits() == 0) {
+    out_dtype = data->dtype;
+  }
+  // assign output type
+  reporter->Assign(types[2], TensorType(oshape, out_dtype));
+  return true;
+}
+
+RELAY_REGISTER_OP("nn.contrib_my_im2col")
+    .describe(R"code(Applies a linear transformation: :math:`C = A * B`. A & B can be transposed.
+
+- **tensor_a**: `(x1, x2, ..., xn, input_dim)` or `(x1, x2, ..., input_dim, xn)`
+- **tensor_b**: `(input_dim, units)` or `(units, input_dim)`
+- **out**: `(x1, x2, ..., xn, units)`.
+
+)code" TVM_ADD_FILELINE)
+    .set_attrs_type<Conv2DAttrs>()
+    .set_num_inputs(2)
+    .add_argument("data", "Tensor", "The input tensor.")
+    .add_argument("weight", "Tensor", "The weight tensor.")
+    .set_support_level(1)
+    .add_type_rel("Im2col", ContribIm2colRel)
+    .set_attr<TOpPattern>("TOpPattern", kOutEWiseFusable);
+
+// ------------------- relay.nn.contrib_my_im2col
+
+// ------------------- relay.nn.contrib_my_gemm
+TVM_REGISTER_NODE_TYPE(Conv2DAttrs);
+
+Expr MakeMyGemm(Expr data, Expr weight, Array<IndexExpr> strides, Array<IndexExpr> padding,
+                       Array<IndexExpr> dilation, int groups, IndexExpr channels,
+                       Array<IndexExpr> kernel_size, tvm::String data_layout,
+                       tvm::String kernel_layout, tvm::String out_layout, DataType out_dtype) {
+  auto attrs = make_object<Conv2DAttrs>();
+  attrs->strides = std::move(strides);
+  attrs->padding = std::move(padding);
+  attrs->dilation = std::move(dilation);
+  attrs->groups = groups;
+  attrs->channels = std::move(channels);
+  attrs->kernel_size = std::move(kernel_size);
+  attrs->data_layout = std::move(data_layout);
+  attrs->kernel_layout = std::move(kernel_layout);
+  attrs->out_layout = std::move(out_layout);
+  attrs->out_dtype = std::move(out_dtype);
+  static const Op& gemm_op = Op::Get("nn.contrib_my_gemm");
+  return Call(gemm_op, {data, weight}, Attrs(attrs), {});
+}
+
+TVM_REGISTER_GLOBAL("relay.op.nn._make.contrib_my_gemm").set_body_typed(MakeMyGemm);
+
+bool ContribGemmRel(const Array<Type>& types, int num_inputs, const Attrs& attrs,
+                   const TypeReporter& reporter) {
+  ICHECK_EQ(types.size(), 3);
+  const auto* data = types[0].as<TensorTypeNode>();
+  if (data == nullptr) return false;
+  static const Layout kNCHW("NCHW");
+  static const Layout kHWIO("HWIO");
+
+  const auto* param = attrs.as<Conv2DAttrs>();
+  ICHECK(param != nullptr);
+  const Layout in_layout(param->data_layout);
+  const Layout kernel_layout(param->kernel_layout);
+
+  const auto trans_in_layout = tir::BijectiveLayout(in_layout, kNCHW);
+
+  Array<IndexExpr> dshape_nhwc = data->shape;
+  IndexExpr N, P, Q, C, KH, KW;
+  N= dshape_nhwc[0];
+  P= dshape_nhwc[1];
+  Q= dshape_nhwc[2];
+  C= dshape_nhwc[3];
+  KH= dshape_nhwc[4];
+  KW= dshape_nhwc[5];
+
+  IndexExpr K = param->channels;
+  
+  IndexExpr SH = param->strides[0];
+  IndexExpr SW = param->strides[1];
+
+  ICHECK(param->kernel_size.defined() && param->channels.defined())
+      << "The kernel size and channels of a Conv must be set or inferred by previous pass";
+
+  ICHECK_EQ(param->kernel_size.size(), 2);
+  ICHECK_EQ(param->dilation.size(), 2);
+
+  Array<IndexExpr> oshape({N, K, P, Q});
+
+  DataType out_dtype = param->out_dtype;
+  if (out_dtype.bits() == 0) {
+    out_dtype = data->dtype;
+  }
+  reporter->Assign(types[2], TensorType(oshape, out_dtype));
+  return true;
+}
+
+RELAY_REGISTER_OP("nn.contrib_my_gemm")
+    .describe(R"code(Gemm.
+)code" TVM_ADD_FILELINE)
+    .set_attrs_type<Conv2DAttrs>()
+    .set_num_inputs(2)
+    .add_argument("data", "Tensor", "The input tensor.")
+    .add_argument("weight", "Tensor", "The weight tensor.")
+    .set_support_level(1)
+    .add_type_rel("Gemm", ContribGemmRel)
+    .set_attr<TOpPattern>("TOpPattern", kOutEWiseFusable);
+
+// ------------------- relay.nn.contrib_my_gemm
+
+// ------------------- relay.nn.contrib_my_col2im
+TVM_REGISTER_NODE_TYPE(Conv2DAttrs);
+
+Expr MakeMyCol2im(Expr data, Expr weight, Array<IndexExpr> strides, Array<IndexExpr> padding,
+                       Array<IndexExpr> dilation, int groups, IndexExpr channels,
+                       Array<IndexExpr> kernel_size, tvm::String data_layout,
+                       tvm::String kernel_layout, tvm::String out_layout, DataType out_dtype) {
+  auto attrs = make_object<Conv2DAttrs>();
+  attrs->strides = std::move(strides);
+  attrs->padding = std::move(padding);
+  attrs->dilation = std::move(dilation);
+  attrs->groups = groups;
+  attrs->channels = std::move(channels);
+  attrs->kernel_size = std::move(kernel_size);
+  attrs->data_layout = std::move(data_layout);
+  attrs->kernel_layout = std::move(kernel_layout);
+  attrs->out_layout = std::move(out_layout);
+  attrs->out_dtype = std::move(out_dtype);
+  static const Op& col2im_op = Op::Get("nn.contrib_my_col2im");
+  return Call(col2im_op, {data, weight}, Attrs(attrs), {});
+}
+
+TVM_REGISTER_GLOBAL("relay.op.nn._make.contrib_my_col2im").set_body_typed(MakeMyCol2im);
+
+bool ContribCol2imRel(const Array<Type>& types, int num_inputs, const Attrs& attrs,
+                   const TypeReporter& reporter) {
+  ICHECK_EQ(types.size(), 3);
+  const auto* data = types[0].as<TensorTypeNode>();
+  if (data == nullptr) return false;
+  const auto* param = attrs.as<Conv2DAttrs>();
+
+  Array<IndexExpr> dshape_nhwc = data->shape;
+  IndexExpr N, K, P, Q;
+  N= dshape_nhwc[0];
+  K= dshape_nhwc[1];
+  P= dshape_nhwc[2];
+  Q= dshape_nhwc[3];
+  Array<IndexExpr> oshape({N, K, P, Q});
+
+  DataType out_dtype = param->out_dtype;
+  if (out_dtype.bits() == 0) {
+    out_dtype = data->dtype;
+  }
+
+  // assign output type
+  reporter->Assign(types[2], TensorType(oshape, out_dtype));
+  return true;
+}
+
+RELAY_REGISTER_OP("nn.contrib_my_col2im")
+    .describe(R"code(Col2im.
+)code" TVM_ADD_FILELINE)
+    .set_attrs_type<Conv2DAttrs>()
+    .set_num_inputs(2)
+    .add_argument("data", "Tensor", "The input tensor.")
+    .add_argument("weight", "Tensor", "The weight tensor.")
+    .set_support_level(1)
+    .add_type_rel("Col2im", ContribCol2imRel)
+    .set_attr<TOpPattern>("TOpPattern", kOutEWiseFusable);
+
+// ------------------- relay.nn.contrib_my_col2im
+
 // ------------------- relay.nn.contrib_my_matadd
 TVM_REGISTER_NODE_TYPE(MatmulAttrs);
 

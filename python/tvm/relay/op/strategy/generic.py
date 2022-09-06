@@ -396,7 +396,7 @@ def conv2d_my_im2col_strategy(attrs, inputs, out_type, target):
     strategy = _op.OpStrategy()
     strategy.add_implementation(
         wrap_compute_conv2d(topi.cuda.compute_my_im2col),
-        wrap_topi_schedule(topi.generic.schedule_group_conv2d_nhwc),
+        wrap_topi_schedule(topi.cuda.schedule_my_im2col),
         name="conv2d_my_im2col_strategy.generic",
     )
     return strategy
@@ -408,7 +408,7 @@ def conv2d_my_gemm_strategy(attrs, inputs, out_type, target):
     strategy = _op.OpStrategy()
     strategy.add_implementation(
         wrap_compute_conv2d(topi.cuda.compute_my_gemm),
-        wrap_topi_schedule(topi.generic.schedule_group_conv2d_nhwc),
+        wrap_topi_schedule(topi.cuda.schedule_my_gemm),
         name="conv2d_my_gemm_strategy.generic",
     )
     return strategy
@@ -420,7 +420,7 @@ def conv2d_my_col2im_strategy(attrs, inputs, out_type, target):
     strategy = _op.OpStrategy()
     strategy.add_implementation(
         wrap_compute_conv2d(topi.cuda.compute_my_col2im),
-        wrap_topi_schedule(topi.generic.schedule_group_conv2d_nhwc),
+        wrap_topi_schedule(topi.cuda.schedule_my_col2im),
         name="conv2d_my_col2im_strategy.generic",
     )
     return strategy
