@@ -65,7 +65,7 @@ def my_tvm_matmul_temp(a, b, c, m, k, n):
     B = (ctypes.c_double*len(B_data))(*B_data)
     C = (ctypes.c_float*len(C_data))(*C_data)
     _Lib.wmma_api(A, B, C, m, n, k)
-    print(np.array(C))
+    # print(np.array(C))
     tvm.nd.array( np.array(C).astype("float64").reshape(m,n) ).copyto(c)
 
 
@@ -87,8 +87,8 @@ def im2col_temp(data_im, data_col, data_n, channels,
                 pad_h, pad_w,
                 stride_h, stride_w,
                 dilation_h, dilation_w, col_Z)
-    print("======im2col_out=====")
-    print(np.array(col_Z))
+    # print("======im2col_out=====")
+    # print(np.array(col_Z))
     tvm.nd.array( np.array(col_Z).astype("float32").reshape(data_n, out_w, out_h, channels, kernel_w, kernel_h) ).copyto(data_col)
 
 @tvm.register_func("tvm.contrib.gemm_temp")
@@ -107,8 +107,8 @@ def gemm_temp(im2col_out, kernel, gemm_out,
     output_Z = (ctypes.c_float*len(output))(*output)
 
     _Lib.cublas_gemm_host(input_B_Z, input_A_Z, M, K, N, output_Z)
-    print("======gemm_out======")
-    print(np.array(output_Z))
+    # print("======gemm_out======")
+    # print(np.array(output_Z))
     tvm.nd.array( np.array(output_Z).astype("float32").reshape(outshape)).copyto(gemm_out)
 
 @tvm.register_func("tvm.contrib.col2im_here")
@@ -123,8 +123,8 @@ def col2im_temp(data, col2im_out, data_n, kernel_n, out_h, out_w):
     output_Z = (ctypes.c_float*len(output))(*output)
 
     _Lib.col2im_gpu(input_Z, data_n, kernel_n, out_h, out_w, output_Z)
-    print("======col2im_out======")
-    print(np.array(output_Z))
+    # print("======col2im_out======")
+    # print(np.array(output_Z))
     tvm.nd.array( np.array(output_Z).astype("float32").reshape(out_shape) ).copyto(col2im_out)
 
 def compute_my_im2col(
@@ -144,7 +144,6 @@ def compute_my_im2col(
     out_w = (f_w + 2 * padding_w - k_w) // stride_w + 1
     out_h = (f_h + 2 * padding_h - k_h) // stride_h + 1
 
-    print(batch, out_w, out_h, in_channel, k_w, k_h)
     out = te.extern(
         (batch, out_w, out_h, in_channel, k_w, k_h),
         [data],
