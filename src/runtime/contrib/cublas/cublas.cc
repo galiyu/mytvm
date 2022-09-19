@@ -20,6 +20,8 @@
 /*!
  * \file Use external cblas library call.
  */
+#include <contrib_api.h>
+
 #include <tvm/runtime/data_type.h>
 #include <tvm/runtime/logging.h>
 #include <tvm/runtime/registry.h>
@@ -342,6 +344,77 @@ inline void CallBatchGemmEx(TVMArgs args, TVMRetValue* ret, cublasHandle_t hdl) 
       beta_ptr, C_data, cuda_out_type, ColumnStride3D(C), C_stride, batch_size, cuda_out_type,
       algo));
 }
+
+TVM_REGISTER_GLOBAL("tvm.contrib.cublas.im2col").set_body([](TVMArgs args, TVMRetValue* ret) {
+  DLTensor* A = args[0];
+  ICHECK(TypeMatch(A->dtype, kDLFloat, 16));
+
+  if (TypeMatch(A->dtype, kDLFloat, 16)){
+    DLTensor* im = args[0];
+    DLTensor* col = args[1];
+    int data_n = args[2];
+    int channels = args[3];
+    int height = args[4];
+    int width = args[5];
+    int kernel_h = args[6];
+    int kernel_w = args[7];
+    int pad_h = args[10];
+    int pad_w = args[11];
+    int stride_h = args[12];
+    int stride_w = args[13];
+    int dilation_h = 1;
+    int dilation_w = 1;
+
+    auto im_ptr = reinterpret_cast<half*>(static_cast<char*>(im->data) + im->byte_offset);
+    auto col_ptr = reinterpret_cast<half*>(static_cast<char*>(col->data) + col->byte_offset);
+
+    im2col_gpu(im_ptr, data_n, channels,
+                height, width, kernel_h, kernel_w,
+                pad_h, pad_w,
+                stride_h, stride_w,
+                dilation_h, dilation_w, col_ptr);
+  }
+});
+
+TVM_REGISTER_GLOBAL("tvm.contrib.cublas.spmmagemm").set_body([](TVMArgs args, TVMRetValue* ret) {
+  DLTensor* A = args[0];
+  ICHECK(TypeMatch(A->dtype, kDLFloat, 16));
+
+  if (TypeMatch(A->dtype, kDLFloat, 16)){
+    DLTensor* A = args[0];
+    DLTensor* B = args[1];
+    DLTensor* out = args[2];
+    int M = args[3];
+    int K = args[4];
+    int N = args[5];
+    bool isValid = false;
+
+    auto A_ptr = reinterpret_cast<half*>(static_cast<char*>(A->data) + A->byte_offset);
+    auto B_ptr = reinterpret_cast<half*>(static_cast<char*>(B->data) + B->byte_offset);
+    auto C_ptr = reinterpret_cast<half*>(static_cast<char*>(out->data) + out->byte_offset);
+
+    sparse_mma_gemm_host(B_ptr, A_ptr, M, K, N, isValid, C_ptr);
+  }
+});
+
+TVM_REGISTER_GLOBAL("tvm.contrib.cublas.col2im").set_body([](TVMArgs args, TVMRetValue* ret) {
+  DLTensor* in = args[0];
+  ICHECK(TypeMatch(in->dtype, kDLFloat, 16));
+
+  if (TypeMatch(in->dtype, kDLFloat, 16)){
+    // DLTensor* in = args[0];
+    DLTensor* out = args[1];
+    int data_n = args[2];
+    int kernel_n = args[3];
+    int out_h = args[4];
+    int out_w = args[5];
+
+    auto input_ptr = reinterpret_cast<half*>(static_cast<char*>(in->data) + in->byte_offset);
+    auto output_ptr = reinterpret_cast<half*>(static_cast<char*>(out->data) + out->byte_offset);
+
+    col2im_gpu(input_ptr, data_n, kernel_n, out_h, out_w, output_ptr);
+  }
+});
 
 // matrix multiplication for row major
 TVM_REGISTER_GLOBAL("tvm.contrib.cublas.matmul").set_body([](TVMArgs args, TVMRetValue* ret) {

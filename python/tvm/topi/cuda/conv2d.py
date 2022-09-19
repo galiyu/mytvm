@@ -69,63 +69,63 @@ def my_tvm_matmul_temp(a, b, c, m, k, n):
     tvm.nd.array( np.array(C).astype("float64").reshape(m,n) ).copyto(c)
 
 
-@tvm.register_func("tvm.contrib.im2col_temp")
-def im2col_temp(data_im, data_col, data_n, channels,
-                height, width, kernel_h, kernel_w, out_w, out_h,
-                pad_h, pad_w,
-                stride_h, stride_w,
-                dilation_h = 1, dilation_w = 1):
-    _Lib = ctypes.CDLL("/root/wmma/lib_conv2d_sub/lib_im2col/libim2col.so", ctypes.RTLD_GLOBAL)
+# @tvm.register_func("tvm.contrib.im2col_temp")
+# def im2col_temp(data_im, data_col, data_n, channels,
+#                 height, width, kernel_h, kernel_w, out_w, out_h,
+#                 pad_h, pad_w,
+#                 stride_h, stride_w,
+#                 dilation_h = 1, dilation_w = 1):
+#     _Lib = ctypes.CDLL("/root/wmma/lib_conv2d_sub/lib_im2col_half/libim2col.so", ctypes.RTLD_GLOBAL)
+#     start = time.time()
+#     im = data_im.numpy().flatten()
+#     col = data_col.numpy().flatten()
+#     im_ptr = ctypes.c_void_p(im.__array_interface__["data"][0])
+#     col_ptr = ctypes.c_void_p(col.__array_interface__["data"][0])
+#     mid = time.time()
+#     print('im2col ptr costs:{}ms'.format((mid-start)*1000))
+#     _Lib.im2col_gpu(im_ptr, data_n, channels,
+#                 height, width, kernel_h, kernel_w,
+#                 pad_h, pad_w,
+#                 stride_h, stride_w,
+#                 dilation_h, dilation_w, col_ptr)
+#     end = time.time()
+#     print('im2col_gpu costs:{}ms'.format((end-mid)*1000))
+#     tvm.nd.array( col.astype("float16").reshape(data_n, out_w, out_h, channels, kernel_w, kernel_h) ).copyto(data_col)
 
-    im = data_im.numpy().flatten().astype(c_float)
-    col = data_col.numpy().flatten().astype(c_float)
-    im_Z = (ctypes.c_float*len(im))(*im)
-    col_Z = (ctypes.c_float*len(col))(*col)
-    
-    _Lib.im2col_gpu(im_Z, data_n, channels,
-                height, width, kernel_h, kernel_w,
-                pad_h, pad_w,
-                stride_h, stride_w,
-                dilation_h, dilation_w, col_Z)
-    # print("======im2col_out=====")
-    # print(np.array(col_Z))
-    tvm.nd.array( np.array(col_Z).astype("float32").reshape(data_n, out_w, out_h, channels, kernel_w, kernel_h) ).copyto(data_col)
+# @tvm.register_func("tvm.contrib.gemm_temp")
+# def gemm_temp(im2col_out, kernel, gemm_out,
+#                 M, K, N,
+#                 isValid = False
+#                 ):
+#     _Lib = ctypes.CDLL("/root/wmma/lib_conv2d_sub/lib_gemm_spmma/libgemmspmma.so", ctypes.RTLD_GLOBAL)
 
-@tvm.register_func("tvm.contrib.gemm_temp")
-def gemm_temp(im2col_out, kernel, gemm_out,
-                M, K, N,
-                ):
-    _Lib = ctypes.CDLL("/root/wmma/lib_conv2d_sub/lib_gemm_cublas/libgemmcublas.so", ctypes.RTLD_GLOBAL)
-    outdata = gemm_out.numpy()
-    outshape = outdata.shape
-    
-    input_A = im2col_out.numpy().flatten().astype(c_float)
-    input_B = kernel.numpy().flatten().astype(c_float)
-    output = outdata.flatten().astype(c_float)
-    input_A_Z = (ctypes.c_float*len(input_A))(*input_A)
-    input_B_Z = (ctypes.c_float*len(input_B))(*input_B)
-    output_Z = (ctypes.c_float*len(output))(*output)
+#     outdata = gemm_out.numpy()
+#     outshape = outdata.shape
+#     # b = np.load("/root/im2col.npy")
+#     input_A = im2col_out.numpy().flatten()
+#     input_B = kernel.numpy().flatten()
+#     output = outdata.flatten()
+#     A_ptr = ctypes.c_void_p(input_A.__array_interface__["data"][0])
+#     B_ptr = ctypes.c_void_p(input_B.__array_interface__["data"][0])
+#     C_ptr = ctypes.c_void_p(output.__array_interface__["data"][0])
 
-    _Lib.cublas_gemm_host(input_B_Z, input_A_Z, M, K, N, output_Z)
-    # print("======gemm_out======")
-    # print(np.array(output_Z))
-    tvm.nd.array( np.array(output_Z).astype("float32").reshape(outshape)).copyto(gemm_out)
+#     _Lib.sparse_mma_gemm_host(B_ptr, A_ptr, M, K, N, isValid, C_ptr)
 
-@tvm.register_func("tvm.contrib.col2im_here")
-def col2im_temp(data, col2im_out, data_n, kernel_n, out_h, out_w):
-    _Lib = ctypes.CDLL("/root/wmma/lib_conv2d_sub/lib_col2im/libcol2im.so", ctypes.RTLD_GLOBAL)
-    out_data = col2im_out.numpy()
-    out_shape = out_data.shape
-    input = data.numpy().flatten().astype(c_float)
+#     tvm.nd.array( np.array(output).astype("float16").reshape(outshape)).copyto(gemm_out)
 
-    output = out_data.flatten().astype(c_float)
-    input_Z = (ctypes.c_float*len(input))(*input)
-    output_Z = (ctypes.c_float*len(output))(*output)
+# @tvm.register_func("tvm.contrib.col2im_temp")
+# def col2im_temp(data, col2im_out, data_n, kernel_n, out_h, out_w):
+#     _Lib = ctypes.CDLL("/root/wmma/lib_conv2d_sub/lib_col2im_half/libcol2im.so", ctypes.RTLD_GLOBAL)
+#     out_data = col2im_out.numpy()
+#     out_shape = out_data.shape
+#     input = data.numpy().flatten()
+#     output = out_data.flatten()
+#     input_ptr = ctypes.c_void_p(input.__array_interface__["data"][0])
+#     output_ptr = ctypes.c_void_p(output.__array_interface__["data"][0])
 
-    _Lib.col2im_gpu(input_Z, data_n, kernel_n, out_h, out_w, output_Z)
-    # print("======col2im_out======")
-    # print(np.array(output_Z))
-    tvm.nd.array( np.array(output_Z).astype("float32").reshape(out_shape) ).copyto(col2im_out)
+#     _Lib.col2im_gpu(input_ptr, data_n, kernel_n, out_h, out_w, output_ptr)
+
+#     tvm.nd.array( np.array(output).astype("float16").reshape(out_shape) ).copyto(col2im_out)
 
 def compute_my_im2col(
     data, kernel, strides, padding, dilation=1, groups=1, layout="NCHW", out_dtype="float32"
@@ -147,7 +147,7 @@ def compute_my_im2col(
     out = te.extern(
         (batch, out_w, out_h, in_channel, k_w, k_h),
         [data],
-        lambda ins, outs: tvm.tir.call_packed("tvm.contrib.im2col_temp", ins[0], outs[0],
+        lambda ins, outs: tvm.tir.call_packed("tvm.contrib.cublas.im2col", ins[0], outs[0],
         batch, in_channel, f_w, f_h, k_w, k_h, out_w, out_h, padding_h, padding_w, stride_h, stride_w
         ),
         name="compute_my_im2col",
@@ -172,7 +172,7 @@ def compute_my_gemm(
     out = te.extern(
         (batch, out_channel, out_w, out_h),
         [data, kernel],
-        lambda ins, outs: tvm.tir.call_packed("tvm.contrib.gemm_temp", ins[0], ins[1], outs[0],
+        lambda ins, outs: tvm.tir.call_packed("tvm.contrib.cublas.spmmagemm", ins[0], ins[1], outs[0],
         M, K, N
         ),
         name="compute_my_gemm",
@@ -191,7 +191,7 @@ def compute_my_col2im(
     out = te.extern(
         (batch, out_channel, out_w, out_h),
         [data],
-        lambda ins, outs: tvm.tir.call_packed("tvm.contrib.col2im_here", ins[0], outs[0],
+        lambda ins, outs: tvm.tir.call_packed("tvm.contrib.cublas.col2im", ins[0], outs[0],
         batch, out_channel, out_h, out_w
         ),
         name="compute_my_col2im",
