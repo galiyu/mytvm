@@ -20,6 +20,7 @@
 /*!
  * \file cuDNN kernel calls for the forward algorithm.
  */
+#include <contrib_api.h>
 #include <tvm/runtime/data_type.h>
 #include <tvm/runtime/device_api.h>
 #include <tvm/runtime/registry.h>
@@ -142,6 +143,105 @@ void FindAlgo(int format, int dims, int groups, const int pad[], const int strid
 
   ret[0] = best_algo;
 }
+
+TVM_REGISTER_GLOBAL("tvm.contrib.cudnn.conv2d.device").set_body([](TVMArgs args, TVMRetValue* ret) {
+  DLTensor* f = args[0];
+  DLTensor* k = args[1];
+  DLTensor* o = args[2];
+  auto feature = reinterpret_cast<void*>(static_cast<char*>(f->data) + f->byte_offset);
+  auto kernel = reinterpret_cast<void*>(static_cast<char*>(k->data) + k->byte_offset);
+  auto out = reinterpret_cast<void*>(static_cast<char*>(o->data) + o->byte_offset);
+  int batch = args[3];
+  int in_c = args[4];
+  int out_channel = args[5];
+  int f_w = args[6];
+  int f_h = args[7];
+  int k_w = args[8];
+  int k_h = args[9];
+  int stride = args[10];
+  int padding = args[11];
+
+  int data_n = batch, data_c = in_c, data_h = f_h, data_w = f_w;
+  int kernel_n = out_channel, kernel_c = in_c, kernel_h = k_h, kernel_w = k_w;
+  int dilation = 1;
+
+  //handle
+  cudnnHandle_t handle;
+  CHECK_CUDNN(cudnnCreate(&handle))
+
+  // input
+  cudnnTensorDescriptor_t input_descriptor;
+  CHECK_CUDNN(cudnnCreateTensorDescriptor(&input_descriptor))
+  CHECK_CUDNN(cudnnSetTensor4dDescriptor(input_descriptor, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF,
+                                          data_n, data_c, data_h, data_w)) // n, c, h, w
+
+  // kernel
+  //printTensor(kernel, kernel_n, kernel_c, kernel_w, kernel_h, "kernel: ");
+  cudnnFilterDescriptor_t kernel_descriptor;
+  CHECK_CUDNN(cudnnCreateFilterDescriptor(&kernel_descriptor))
+  CHECK_CUDNN(cudnnSetFilter4dDescriptor(kernel_descriptor, CUDNN_DATA_HALF, CUDNN_TENSOR_NCHW,
+                                          kernel_n, kernel_c, kernel_h, kernel_w))
+
+  // convolution descriptor
+  cudnnConvolutionDescriptor_t conv_descriptor;
+  CHECK_CUDNN(cudnnCreateConvolutionDescriptor(&conv_descriptor))
+  CHECK_CUDNN(cudnnSetConvolution2dDescriptor(conv_descriptor,
+                                              padding, padding, // zero-padding
+                                              stride, stride, // stride
+                                              dilation, dilation, // dilation 卷积核膨胀 膨胀后用0填充空位
+          // 卷积是需要将卷积核旋转180°再进行后续的 -> CUDNN_CONVOLUTION
+                                              CUDNN_CROSS_CORRELATION, CUDNN_DATA_FLOAT))
+
+  // output
+  int out_n, out_c, out_h, out_w;
+  CHECK_CUDNN(cudnnGetConvolution2dForwardOutputDim(conv_descriptor, input_descriptor, kernel_descriptor,
+                                                    &out_n, &out_c, &out_h, &out_w))
+
+  cudnnTensorDescriptor_t output_descriptor;
+  CHECK_CUDNN(cudnnCreateTensorDescriptor(&output_descriptor))
+  CHECK_CUDNN(cudnnSetTensor4dDescriptor(output_descriptor, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF,
+                                          out_n, out_c, out_h, out_w))
+
+  cudnnConvolutionFwdAlgo_t algo = CUDNN_CONVOLUTION_FWD_ALGO_GEMM;
+  //cudnnConvolutionFwdAlgo_t algo = CUDNN_CONVOLUTION_FWD_ALGO_IMPLICIT_GEMM;
+  //cudnnConvolutionFwdAlgo_t algo = CUDNN_CONVOLUTION_FWD_ALGO_DIRECT; // no support
+  //cudnnConvolutionFwdAlgo_t algo = CUDNN_CONVOLUTION_FWD_ALGO_WINOGRAD;
+  //cudnnConvolutionFwdAlgo_t algo = CUDNN_CONVOLUTION_FWD_ALGO_WINOGRAD_NONFUSED;
+
+  // workspace size && allocate memory
+  size_t workspace_size = 0;
+  CHECK_CUDNN(cudnnGetConvolutionForwardWorkspaceSize(handle,
+                                                      input_descriptor,
+                                                      kernel_descriptor,
+                                                      conv_descriptor,
+                                                      output_descriptor,
+                                                      algo,
+                                                      &workspace_size))
+
+  void *workspace = nullptr;
+  CHECK_CUDA(cudaMalloc(&workspace, workspace_size))
+
+  // convolution
+  auto alpha = 1.0f, beta = 0.0f;
+
+  // calculate
+  CHECK_CUDNN(cudnnConvolutionForward(handle,
+                                      &alpha, input_descriptor, feature,
+                                      kernel_descriptor, kernel,
+                                      conv_descriptor, algo,
+                                      workspace, workspace_size,
+                                      &beta, output_descriptor, out))
+
+  // destroy
+  CHECK_CUDA(cudaFree(workspace))
+
+  CHECK_CUDNN(cudnnDestroyTensorDescriptor(input_descriptor))
+  CHECK_CUDNN(cudnnDestroyTensorDescriptor(output_descriptor))
+  CHECK_CUDNN(cudnnDestroyConvolutionDescriptor(conv_descriptor))
+  CHECK_CUDNN(cudnnDestroyFilterDescriptor(kernel_descriptor))
+
+  CHECK_CUDNN(cudnnDestroy(handle))
+});
 
 TVM_REGISTER_GLOBAL("tvm.contrib.cudnn.conv2d.forward")
     .set_body([](TVMArgs args, TVMRetValue* ret) {

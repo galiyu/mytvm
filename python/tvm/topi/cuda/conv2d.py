@@ -16,6 +16,7 @@
 # under the License.
 # pylint: disable=invalid-name, unused-argument
 """Compute definition for conv2d with cuda backend"""
+import tvm
 from tvm import te
 from tvm import autotvm
 from tvm.autotvm.task.space import OtherOptionEntity
@@ -46,86 +47,36 @@ def schedule_conv2d_nchw(cfg, outs):
     traverse_inline(s, outs[0].op, _callback)
     return s
 
-import tvm
-from tvm import te,topi
-import numpy as np
-import ctypes
-from ctypes import *
+def compute_my_conv2d(
+    data, kernel, strides, padding, dilation=1, groups=1, layout="NCHW", out_dtype="float16"
+):
+    batch, in_channel, f_h, f_w = get_const_tuple(data.shape)
+    out_channel, _, k_h, k_w = get_const_tuple(kernel.shape)
+    stride_h, stride_w = (strides, strides) if isinstance(strides, int) else strides
+    dilation_h, dilation_w = (dilation, dilation) if isinstance(dilation, int) else dilation
+    KH_dilated = (k_h - 1) * dilation_h + 1
+    KW_dilated = (k_w - 1) * dilation_h + 1
 
-@tvm.register_func("tvm.contrib.my_tvm_matmul_temp")
-def my_tvm_matmul_temp(a, b, c, m, k, n):
-    _Lib = ctypes.CDLL("/root/wmma/lib_wmma/libwmmaapi.so", ctypes.RTLD_GLOBAL)
+    pt, pl, pb, pr = get_pad_tuple(padding, (KH_dilated, KW_dilated))
+    padding_h = pt
+    padding_w = pl
 
-    # A_data = a.numpy().flatten('c').astype(c_double)
-    # B_data = b.numpy().flatten('f').astype(c_double)
-    A_data = np.ones(m*k).flatten().astype(c_double)
-    B_data = np.ones(k*n).flatten().astype(c_double)
-    C_data = np.random.uniform(-1, 1, m*n).astype(c_float)
-    A = (ctypes.c_double*len(A_data))(*A_data)
-    B = (ctypes.c_double*len(B_data))(*B_data)
-    C = (ctypes.c_float*len(C_data))(*C_data)
-    _Lib.wmma_api(A, B, C, m, n, k)
-    # print(np.array(C))
-    tvm.nd.array( np.array(C).astype("float64").reshape(m,n) ).copyto(c)
+    out_w = (f_w + 2 * padding_w - k_w) // stride_w + 1
+    out_h = (f_h + 2 * padding_h - k_h) // stride_h + 1
 
+    out = te.extern(
+        (batch, out_channel, out_w, out_h),
+        [data, kernel],
+        lambda ins, outs: tvm.tir.call_packed("tvm.contrib.cudnn.conv2d.device", ins[0], ins[1], outs[0],
+        batch, in_channel, out_channel, f_w, f_h, k_w, k_h, stride_h, padding_h
+        ),
+        name="compute_my_conv2d",
+    )
+    return out
 
-# @tvm.register_func("tvm.contrib.im2col_temp")
-# def im2col_temp(data_im, data_col, data_n, channels,
-#                 height, width, kernel_h, kernel_w, out_w, out_h,
-#                 pad_h, pad_w,
-#                 stride_h, stride_w,
-#                 dilation_h = 1, dilation_w = 1):
-#     _Lib = ctypes.CDLL("/root/wmma/lib_conv2d_sub/lib_im2col_half/libim2col.so", ctypes.RTLD_GLOBAL)
-#     start = time.time()
-#     im = data_im.numpy().flatten()
-#     col = data_col.numpy().flatten()
-#     im_ptr = ctypes.c_void_p(im.__array_interface__["data"][0])
-#     col_ptr = ctypes.c_void_p(col.__array_interface__["data"][0])
-#     mid = time.time()
-#     print('im2col ptr costs:{}ms'.format((mid-start)*1000))
-#     _Lib.im2col_gpu(im_ptr, data_n, channels,
-#                 height, width, kernel_h, kernel_w,
-#                 pad_h, pad_w,
-#                 stride_h, stride_w,
-#                 dilation_h, dilation_w, col_ptr)
-#     end = time.time()
-#     print('im2col_gpu costs:{}ms'.format((end-mid)*1000))
-#     tvm.nd.array( col.astype("float16").reshape(data_n, out_w, out_h, channels, kernel_w, kernel_h) ).copyto(data_col)
-
-# @tvm.register_func("tvm.contrib.gemm_temp")
-# def gemm_temp(im2col_out, kernel, gemm_out,
-#                 M, K, N,
-#                 isValid = False
-#                 ):
-#     _Lib = ctypes.CDLL("/root/wmma/lib_conv2d_sub/lib_gemm_spmma/libgemmspmma.so", ctypes.RTLD_GLOBAL)
-
-#     outdata = gemm_out.numpy()
-#     outshape = outdata.shape
-#     # b = np.load("/root/im2col.npy")
-#     input_A = im2col_out.numpy().flatten()
-#     input_B = kernel.numpy().flatten()
-#     output = outdata.flatten()
-#     A_ptr = ctypes.c_void_p(input_A.__array_interface__["data"][0])
-#     B_ptr = ctypes.c_void_p(input_B.__array_interface__["data"][0])
-#     C_ptr = ctypes.c_void_p(output.__array_interface__["data"][0])
-
-#     _Lib.sparse_mma_gemm_host(B_ptr, A_ptr, M, K, N, isValid, C_ptr)
-
-#     tvm.nd.array( np.array(output).astype("float16").reshape(outshape)).copyto(gemm_out)
-
-# @tvm.register_func("tvm.contrib.col2im_temp")
-# def col2im_temp(data, col2im_out, data_n, kernel_n, out_h, out_w):
-#     _Lib = ctypes.CDLL("/root/wmma/lib_conv2d_sub/lib_col2im_half/libcol2im.so", ctypes.RTLD_GLOBAL)
-#     out_data = col2im_out.numpy()
-#     out_shape = out_data.shape
-#     input = data.numpy().flatten()
-#     output = out_data.flatten()
-#     input_ptr = ctypes.c_void_p(input.__array_interface__["data"][0])
-#     output_ptr = ctypes.c_void_p(output.__array_interface__["data"][0])
-
-#     _Lib.col2im_gpu(input_ptr, data_n, kernel_n, out_h, out_w, output_ptr)
-
-#     tvm.nd.array( np.array(output).astype("float16").reshape(out_shape) ).copyto(col2im_out)
+def schedule_my_conv2d(outs):
+    """Create the schedule for conv2d"""
+    return generic.schedule_extern(outs)
 
 def compute_my_im2col(
     data, kernel, strides, padding, dilation=1, groups=1, layout="NCHW", out_dtype="float32"
@@ -165,14 +116,17 @@ def compute_my_gemm(
     batch, out_w, out_h, in_channel, k_w, k_h= get_const_tuple(data.shape)
     out_channel, _, k_h, k_w = get_const_tuple(kernel.shape)
 
-    M = out_channel
+    # M = P*Q*N
+    # K = KH*KW*C
+    # N = K
+    N = out_channel
     K = in_channel*k_h*k_w
-    N = batch*out_w*out_h
-    
+    M = batch*out_w*out_h
+
     out = te.extern(
         (batch, out_channel, out_w, out_h),
         [data, kernel],
-        lambda ins, outs: tvm.tir.call_packed("tvm.contrib.cublas.spmmagemm", ins[0], ins[1], outs[0],
+        lambda ins, outs: tvm.tir.call_packed("tvm.contrib.cublas.cublasgemm", ins[0], ins[1], outs[0],
         M, K, N
         ),
         name="compute_my_gemm",
@@ -182,6 +136,35 @@ def compute_my_gemm(
 def schedule_my_gemm(outs):
     """Create the schedule for conv2d"""
     return generic.schedule_extern(outs)
+
+def compute_gemm_cooblock(
+    data, kernel, Kx, Ky, out_channel, kernel_size, strides, padding, dilation, groups=1, layout="NCHW", out_dtype="float16"
+):
+    batch, out_w, out_h, in_channel, k_w, k_h= get_const_tuple(data.shape)
+    # out_channel, _, k_h, k_w = get_const_tuple(kernel.shape)
+    Bnum = Kx.shape[0]
+
+    # M = P*Q*N
+    # K = KH*KW*C
+    # N = K
+    N = out_channel
+    K = in_channel*k_h*k_w
+    M = batch*out_w*out_h
+    out = te.extern(
+        (batch, N, out_w, out_h),
+        [data, kernel, Kx, Ky],
+        lambda ins, outs: tvm.tir.call_packed("tvm.contrib.cublas.wmma.densexcooblock", ins[0], ins[1], ins[2], ins[3], outs[0],
+        Bnum, M, N, K
+        ),
+        name="compute_gemm_cooblock",
+        dtype = "float16"
+    )
+    return out
+
+def schedule_gemm_cooblock(outs):
+    """Create the schedule for conv2d"""
+    return generic.schedule_extern(outs)
+
 
 def compute_my_col2im(
     data, kernel, strides, padding, dilation, groups=1, layout="NCHW", out_dtype="float32"
@@ -202,29 +185,69 @@ def schedule_my_col2im(outs):
     """Create the schedule for conv2d"""
     return generic.schedule_extern(outs)
 
-def compute_my_matmul(A, B, units=None, out_dtype="", transpose_a=False, transpose_b=False):
+#===============matmul_wmma=================
+def compute_matmul_wmma(A, B, units=None, out_dtype="", transpose_a=False, transpose_b=False):
     m, k = get_const_tuple(A.shape)
     _, n = get_const_tuple(B.shape)
-    
+
+    out = te.extern(
+        [m, n],
+        [A, B],
+        lambda ins, outs: tvm.tir.call_packed(
+            "tvm.contrib.cublas.wmma.general",
+            ins[0], ins[1], outs[0],
+            m, n, k
+        ),
+        name = "compute_my_matmul",
+        dtype="float16"
+    )
+    return out
+
+def schedule_matmul_wmma(outs):
+    return generic.schedule_extern(outs)
+
+#===============matmul_cublas=================
+def compute_matmul_Cublas(A, B, units=None, out_dtype="", transpose_a=False, transpose_b=False):
+    m, k = get_const_tuple(A.shape)
+    _, n = get_const_tuple(B.shape)
     
     out = te.extern(
         [m, n],
         [A, B],
         lambda ins, outs: tvm.tir.call_packed(
-            "tvm.contrib.my_tvm_matmul_temp", ins[0], ins[1], outs[0],
-            m, k, n
+            "tvm.contrib.cublas.cublasgemm",
+            ins[0], ins[1], outs[0],
+            m, n, k
         ),
-        name = "compute_my_matmul",
+        name = "compute_matmul_cublas",
+        dtype="float16"
     )
     return out
 
-def compute_my_matadd(A, B, units=None, out_dtype="", transpose_a=False, transpose_b=False):
-    out = te.compute(
-        A.shape,
-        lambda i,j,k,l: A[i,j,k,l] + B[i,j,k,l],
-        name = "compute_my_matadd",
+def schedule_matmul_Cublas(outs):
+    return generic.schedule_extern(outs)
+
+#===============matmul_cooblock=================
+# relay端: DENSEXCOOBLOCK
+def compute_matmul_cooblock(A, B, Bx, By, Bnum, M, N, K, units=None, out_dtype="", transpose_a=False, transpose_b=False):
+    A_shape = get_const_tuple(A.shape)
+
+    out = te.extern(
+        (M, N),
+        [A, B, Bx, By],
+        lambda ins, outs: tvm.tir.call_packed(
+            # "tvm.contrib.cublas.wmma.cooblockxdense",
+            "tvm.contrib.cublas.wmma.densexcooblock",
+            ins[0], ins[1], ins[2], ins[3], outs[0],
+            Bnum, M, N, K
+        ),
+        name = "compute_matmul_cooblock",
+        dtype = "float16"
     )
     return out
+
+def schedule_matmul_cooblock(outs):
+    return generic.schedule_extern(outs)
 
 
 @autotvm.register_topi_compute("conv2d_cudnn.cuda")

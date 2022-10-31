@@ -743,6 +743,12 @@ reg.register_strategy(
     strategy.conv2d_gemm_without_weight_transform_strategy,
 )
 
+# conv2d_conv2d related operators
+reg.register_strategy(
+    "nn.contrib_my_conv2d",
+    strategy.conv2d_my_conv2d_strategy,
+)
+
 # conv2d_im2col related operators
 reg.register_strategy(
     "nn.contrib_my_im2col",
@@ -763,13 +769,23 @@ reg.register_strategy(
 
 # my matmul related operators
 reg.register_strategy(
-    "nn.contrib_my_matmul",
-    strategy.contrib_my_matmul_strategy,
+    "nn.contrib_matmul_wmma",
+    strategy.contrib_matmul_wmma_strategy,
+)
+# my matmul cooblock related operators
+reg.register_strategy(
+    "nn.contrib_matmul_cooblock",
+    strategy.contrib_matmul_cooblock_strategy,
+)
+# my gemm cooblock related operators
+reg.register_strategy(
+    "nn.contrib_gemm_cooblock",
+    strategy.conv2d_gemm_cooblock_strategy,
 )
 # my matadd related operators
 reg.register_strategy(
-    "nn.contrib_my_matadd",
-    strategy.contrib_my_matadd_strategy,
+    "nn.contrib_matmul_cublas",
+    strategy.contrib_matmul_cublas_strategy,
 )
 
 @reg.register_compute("nn.contrib_conv2d_gemm_weight_transform")

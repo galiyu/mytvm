@@ -1073,6 +1073,41 @@ struct MatmulAttrs : public tvm::AttrsNode<MatmulAttrs> {
   }
 };
 
+/*! \brief Attributes for matmul operator */
+struct MatmulBooAttrs : public tvm::AttrsNode<MatmulBooAttrs> {
+  int Bnum;
+  int M;
+  int N;
+  int K;
+  IndexExpr units;
+  DataType out_dtype;
+  bool transpose_a;
+  bool transpose_b;
+  tvm::String auto_scheduler_rewritten_layout;   // The layout after auto-scheduler's layout rewrite
+  Array<PrimExpr> meta_schedule_original_shape;  // The original shape of the weights
+
+  TVM_DECLARE_ATTRS(MatmulBooAttrs, "relay.attrs.MatmulBooAttrs") {
+    TVM_ATTR_FIELD(Bnum).describe("tensor size Bnum");
+    TVM_ATTR_FIELD(M).describe("tensor size M");
+    TVM_ATTR_FIELD(N).describe("tensor size N");
+    TVM_ATTR_FIELD(K).describe("tensor size K");
+    TVM_ATTR_FIELD(units).describe("Number of hidden units of the dense transformation.");
+
+    // use 0 bits to indicate none.
+    TVM_ATTR_FIELD(out_dtype)
+        .set_default(NullValue<DataType>())
+        .describe("Output data type, set to explicit type under mixed precision setting");
+
+    TVM_ATTR_FIELD(transpose_a)
+        .set_default(false)
+        .describe("Whether the first input tensor is in transposed format.");
+
+    TVM_ATTR_FIELD(transpose_b)
+        .set_default(false)
+        .describe("Whether the second input tensor is in transposed format.");
+  }
+};
+
 /*! \brief Attributes for dense operator */
 struct DenseAttrs : public tvm::AttrsNode<DenseAttrs> {
   IndexExpr units;

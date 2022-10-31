@@ -261,6 +261,48 @@ def wrap_compute_conv2d(
 
     return _compute_conv2d
 
+# conv2d_cooblock
+def wrap_compute_conv2d_cooblock(
+    topi_compute,
+    *,
+    need_data_layout=False,
+    need_kernel_layout=False,
+    need_out_layout=False,
+    has_groups=False,
+    need_auto_scheduler_layout=False,
+    need_meta_schedule_layout=False,
+):
+    """Wrap conv2d topi compute"""
+
+    def _compute_conv2d(attrs, inputs, out_type):
+        out_channel = get_const_int(attrs.channels)
+        kernel_size = get_const_tuple(attrs.kernel_size)
+        padding = get_const_tuple(attrs.padding)
+        strides = get_const_tuple(attrs.strides)
+        dilation = get_const_tuple(attrs.dilation)
+        data_layout = attrs.get_str("data_layout")
+        kernel_layout = attrs.get_str("kernel_layout")
+        out_layout = attrs.get_str("out_layout")
+        out_dtype = attrs.out_dtype
+        out_dtype = inputs[0].dtype if out_dtype in ("same", "") else out_dtype
+        args = [inputs[0], inputs[1], inputs[2], inputs[3], out_channel, kernel_size, strides, padding, dilation]
+        if has_groups:
+            args.append(attrs.groups)
+        if need_data_layout:
+            args.append(data_layout)
+        if need_kernel_layout:
+            args.append(kernel_layout)
+        if need_out_layout:
+            args.append(out_layout)
+        args.append(out_dtype)
+        if need_auto_scheduler_layout:
+            args.append(get_auto_scheduler_rewritten_layout(attrs))
+        elif need_meta_schedule_layout:
+            args.append("")
+            args.append(get_meta_schedule_original_shape(attrs))
+        return [topi_compute(*args)]
+
+    return _compute_conv2d
 
 @override_native_generic_func("conv2d_strategy")
 def conv2d_strategy(attrs, inputs, out_type, target):
@@ -389,6 +431,18 @@ def conv2d_gemm_without_weight_transform_strategy(attrs, inputs, out_type, targe
     """conv2d_gemm_without_weight_transfrom generic strategy"""
     raise ValueError("No generic implemenation for conv2d_gemm_without_weight_transform")
 
+# conv2d_my_conv2d
+@override_native_generic_func("conv2d_my_conv2d_strategy")
+def conv2d_my_conv2d_strategy(attrs, inputs, out_type, target):
+    """conv2d_my_conv2d_strategy"""
+    strategy = _op.OpStrategy()
+    strategy.add_implementation(
+        wrap_compute_conv2d(topi.cuda.compute_my_conv2d),
+        wrap_topi_schedule(topi.cuda.schedule_my_conv2d),
+        name="conv2d_my_conv2d_strategy.generic",
+    )
+    return strategy
+
 # conv2d_my_im2col
 @override_native_generic_func("conv2d_my_im2col_strategy")
 def conv2d_my_im2col_strategy(attrs, inputs, out_type, target):
@@ -410,6 +464,18 @@ def conv2d_my_gemm_strategy(attrs, inputs, out_type, target):
         wrap_compute_conv2d(topi.cuda.compute_my_gemm),
         wrap_topi_schedule(topi.cuda.schedule_my_gemm),
         name="conv2d_my_gemm_strategy.generic",
+    )
+    return strategy
+
+# conv2d_gemm_cooblock
+@override_native_generic_func("conv2d_gemm_cooblock_strategy")
+def conv2d_gemm_cooblock_strategy(attrs, inputs, out_type, target):
+    """conv2d_gemm_cooblock_strategy"""
+    strategy = _op.OpStrategy()
+    strategy.add_implementation(
+        wrap_compute_conv2d_cooblock(topi.cuda.compute_gemm_cooblock),
+        wrap_topi_schedule(topi.cuda.schedule_gemm_cooblock),
+        name="conv2d_gemm_cooblock_strategy.generic",
     )
     return strategy
 
@@ -876,20 +942,27 @@ def wrap_compute_matmul(
 
     return _compute_matmul
 
-def wrap_compute_matadd(
+# matmul_cooblock
+def wrap_compute_matmul_cooblock(
     topi_compute,
     need_auto_scheduler_layout=False,
     need_meta_schedule_layout=False,
 ):
-    """wrap matadd topi compute"""
+    """wrap matmul topi compute"""
 
-    def _compute_matadd(attrs, inputs, out_type):
+    def _compute_matmul(attrs, inputs, out_type):
         """Compute definition of matmul"""
         out_dtype = attrs.out_dtype
         out_dtype = inputs[0].dtype if out_dtype == "" else out_dtype
         args = [
             inputs[0],
             inputs[1],
+            inputs[2],
+            inputs[3],
+            attrs.Bnum,
+            attrs.M,
+            attrs.N,
+            attrs.K,
             None,
             out_dtype,
             attrs.transpose_a,
@@ -900,10 +973,10 @@ def wrap_compute_matadd(
         elif need_meta_schedule_layout:
             args.append("")
             args.append(get_meta_schedule_original_shape(attrs))
-        args[1] = copy_if_identical(inputs[0], inputs[1])
+        # args[1] = copy_if_identical(inputs[0], inputs[1])
         return [topi_compute(*args)]
 
-    return _compute_matadd
+    return _compute_matmul
 
 
 @override_native_generic_func("matmul_strategy")
@@ -918,26 +991,37 @@ def matmul_strategy(attrs, inputs, out_type, target):
     )
     return strategy
 
-# contrib_my_matmul
-@override_native_generic_func("contrib_my_matmul_strategy")
-def contrib_my_matmul_strategy(attrs, inputs, out_type, target):
-    """contrib_my_matmul_strategy"""
+# contrib_matmul_wmma
+@override_native_generic_func("contrib_matmul_wmma_strategy")
+def contrib_matmul_wmma_strategy(attrs, inputs, out_type, target):
+    """contrib_matmul_wmma_strategy"""
     strategy = _op.OpStrategy()
     strategy.add_implementation(
-        wrap_compute_matmul(topi.cuda.compute_my_matmul),
-        wrap_topi_schedule(topi.generic.schedule_matmul),
-        name="contrib_my_matmul.generic",
+        wrap_compute_matmul(topi.cuda.compute_matmul_wmma),
+        wrap_topi_schedule(topi.cuda.schedule_matmul_wmma),
+        name="contrib_matmul.wmma.generic",
     )
     return strategy
-# contrib_my_matadd
-@override_native_generic_func("contrib_my_matadd_strategy")
-def contrib_my_matadd_strategy(attrs, inputs, out_type, target):
-    """contrib_my_matadd_strategy"""
+# contrib_matmul_cooblock
+@override_native_generic_func("contrib_matmul_cooblock_strategy")
+def contrib_matmul_cooblock_strategy(attrs, inputs, out_type, target):
+    """contrib_matmul_cooblock_strategy"""
     strategy = _op.OpStrategy()
     strategy.add_implementation(
-        wrap_compute_matadd(topi.cuda.compute_my_matadd),
-        wrap_topi_schedule(topi.generic.schedule_matmul),
-        name="contrib_my_matadd.generic",
+        wrap_compute_matmul_cooblock(topi.cuda.compute_matmul_cooblock),
+        wrap_topi_schedule(topi.cuda.schedule_matmul_cooblock),
+        name="contrib_matmul_cooblock.generic",
+    )
+    return strategy
+# contrib_matmul_cublas
+@override_native_generic_func("contrib_matmul_cublas_strategy")
+def contrib_matmul_cublas_strategy(attrs, inputs, out_type, target):
+    """contrib_matmul_cublas_strategy"""
+    strategy = _op.OpStrategy()
+    strategy.add_implementation(
+        wrap_compute_matmul(topi.cuda.compute_matmul_Cublas),
+        wrap_topi_schedule(topi.cuda.schedule_matmul_Cublas),
+        name="contrib_matmul.cublas.generic",
     )
     return strategy
 

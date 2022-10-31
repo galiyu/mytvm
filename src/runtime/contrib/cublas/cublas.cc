@@ -364,19 +364,21 @@ TVM_REGISTER_GLOBAL("tvm.contrib.cublas.im2col").set_body([](TVMArgs args, TVMRe
     int stride_w = args[13];
     int dilation_h = 1;
     int dilation_w = 1;
+    int out_h = (height + pad_h + pad_h - (dilation_h * (kernel_h - 1) + 1))/stride_h+1;
+    int out_w = (width + pad_w + pad_w - (dilation_w * (kernel_w - 1) + 1))/stride_w+1;
 
     auto im_ptr = reinterpret_cast<half*>(static_cast<char*>(im->data) + im->byte_offset);
     auto col_ptr = reinterpret_cast<half*>(static_cast<char*>(col->data) + col->byte_offset);
 
     im2col_gpu(im_ptr, data_n, channels,
-                height, width, kernel_h, kernel_w,
+                height, width, kernel_h, kernel_w, out_h, out_w,
                 pad_h, pad_w,
                 stride_h, stride_w,
                 dilation_h, dilation_w, col_ptr);
   }
 });
 
-TVM_REGISTER_GLOBAL("tvm.contrib.cublas.spmmagemm").set_body([](TVMArgs args, TVMRetValue* ret) {
+TVM_REGISTER_GLOBAL("tvm.contrib.cublas.cublasgemm").set_body([](TVMArgs args, TVMRetValue* ret) {
   DLTensor* A = args[0];
   ICHECK(TypeMatch(A->dtype, kDLFloat, 16));
 
@@ -384,16 +386,27 @@ TVM_REGISTER_GLOBAL("tvm.contrib.cublas.spmmagemm").set_body([](TVMArgs args, TV
     DLTensor* A = args[0];
     DLTensor* B = args[1];
     DLTensor* out = args[2];
-    int M = args[3];
-    int K = args[4];
-    int N = args[5];
-    bool isValid = false;
+    // swap A and B
+    int m = args[4];
+    int n = args[3];
+    int k = args[5];
+    cublasHandle_t cublasH = nullptr;
+    CHECK_CUBLAS( cublasCreate(&cublasH) );
+    const half alpha = 1.0;
+    const half beta = 0.0;
 
     auto A_ptr = reinterpret_cast<half*>(static_cast<char*>(A->data) + A->byte_offset);
     auto B_ptr = reinterpret_cast<half*>(static_cast<char*>(B->data) + B->byte_offset);
     auto C_ptr = reinterpret_cast<half*>(static_cast<char*>(out->data) + out->byte_offset);
 
-    sparse_mma_gemm_host(B_ptr, A_ptr, M, K, N, isValid, C_ptr);
+    cublasGemmEx(cublasH, CUBLAS_OP_N, CUBLAS_OP_N, 
+                m, n, k, 
+                &alpha,
+                B_ptr, CUDA_R_16F, m,
+                A_ptr, CUDA_R_16F, k,
+                &beta, 
+                C_ptr, CUDA_R_16F, m,
+                CUDA_R_16F, CUBLAS_GEMM_DFALT_TENSOR_OP);
   }
 });
 
@@ -413,6 +426,80 @@ TVM_REGISTER_GLOBAL("tvm.contrib.cublas.col2im").set_body([](TVMArgs args, TVMRe
     auto output_ptr = reinterpret_cast<half*>(static_cast<char*>(out->data) + out->byte_offset);
 
     col2im_gpu(input_ptr, data_n, kernel_n, out_h, out_w, output_ptr);
+  }
+});
+
+// relay端: COOBLOCKxDENSE
+// cuda kernel:DENSExCOOBLOCK
+TVM_REGISTER_GLOBAL("tvm.contrib.cublas.wmma.cooblockxdense").set_body([](TVMArgs args, TVMRetValue* ret) {
+  DLTensor* A = args[0];
+
+  if (TypeMatch(A->dtype, kDLFloat, 16)){
+    DLTensor* A = args[0];
+    DLTensor* B = args[1];
+    DLTensor* B_x = args[2];
+    DLTensor* B_y = args[3];
+    DLTensor* out = args[4];
+    int B_num = args[5];
+    int M = args[7];
+    int N = args[6];
+    int K = args[8];
+
+    auto A_ptr = reinterpret_cast<half*>(static_cast<char*>(A->data) + A->byte_offset);
+    auto B_ptr = reinterpret_cast<half*>(static_cast<char*>(B->data) + B->byte_offset);
+    auto B_x_ptr = reinterpret_cast<int*>(static_cast<char*>(B_x->data) + B_x->byte_offset);
+    auto B_y_ptr = reinterpret_cast<int*>(static_cast<char*>(B_y->data) + B_y->byte_offset);
+    auto C_ptr = reinterpret_cast<half*>(static_cast<char*>(out->data) + out->byte_offset);
+
+    // half* A, half* B, half* C, int _B_num, int* B_x, int* B_y, int M, int N, int K
+    wmma_dense_cooblock(A_ptr, B_ptr, C_ptr, B_num, B_x_ptr, B_y_ptr, M, N, K);
+  }
+});
+
+// relay端: DENSEXCOOBLOCK
+// cuda kernel:COOBLOCKxDENSE
+TVM_REGISTER_GLOBAL("tvm.contrib.cublas.wmma.densexcooblock").set_body([](TVMArgs args, TVMRetValue* ret) {
+  DLTensor* A = args[0];
+
+  if (TypeMatch(A->dtype, kDLFloat, 16)){
+    DLTensor* A = args[0];
+    DLTensor* B = args[1];
+    DLTensor* B_x = args[2];
+    DLTensor* B_y = args[3];
+    DLTensor* out = args[4];
+    int B_num = args[5];
+    int M = args[6];
+    int N = args[7];
+    int K = args[8];
+
+    auto A_ptr = reinterpret_cast<half*>(static_cast<char*>(A->data) + A->byte_offset);
+    auto B_ptr = reinterpret_cast<half*>(static_cast<char*>(B->data) + B->byte_offset);
+    auto B_x_ptr = reinterpret_cast<int*>(static_cast<char*>(B_x->data) + B_x->byte_offset);
+    auto B_y_ptr = reinterpret_cast<int*>(static_cast<char*>(B_y->data) + B_y->byte_offset);
+    auto C_ptr = reinterpret_cast<half*>(static_cast<char*>(out->data) + out->byte_offset);
+
+    // half* A, half* B, half* C, int _B_num, int* B_x, int* B_y, int M, int N, int K
+    wmma_cooblock_dense(B_ptr, A_ptr, C_ptr, B_num, B_x_ptr, B_y_ptr, N, M, K);
+  }
+});
+
+TVM_REGISTER_GLOBAL("tvm.contrib.cublas.wmma.general").set_body([](TVMArgs args, TVMRetValue* ret) {
+  DLTensor* A = args[0];
+
+  if (TypeMatch(A->dtype, kDLFloat, 16)){
+    DLTensor* A = args[0];
+    DLTensor* B = args[1];
+    DLTensor* out = args[2];
+    // swap A and B
+    int M = args[4];
+    int N = args[3];
+    int K = args[5];
+
+    auto A_ptr = reinterpret_cast<half*>(static_cast<char*>(A->data) + A->byte_offset);
+    auto B_ptr = reinterpret_cast<half*>(static_cast<char*>(B->data) + B->byte_offset);
+    auto C_ptr = reinterpret_cast<half*>(static_cast<char*>(out->data) + out->byte_offset);
+
+    wmma_generals(B_ptr, A_ptr, C_ptr, M, N, K);
   }
 });
 
