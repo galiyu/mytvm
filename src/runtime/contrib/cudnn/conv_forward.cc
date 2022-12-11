@@ -20,7 +20,7 @@
 /*!
  * \file cuDNN kernel calls for the forward algorithm.
  */
-#include <contrib_api.h>
+#include "/root/wmma/src/conv2d_sub/kernels.cuh"
 #include <tvm/runtime/data_type.h>
 #include <tvm/runtime/device_api.h>
 #include <tvm/runtime/registry.h>

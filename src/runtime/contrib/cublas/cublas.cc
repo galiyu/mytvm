@@ -20,8 +20,8 @@
 /*!
  * \file Use external cblas library call.
  */
-#include <contrib_api.h>
-
+#include "/root/wmma/src/conv2d_sub/kernels.cuh"
+#include "/root/wmma/src/conv2d_sub/gemm.cuh"
 #include <tvm/runtime/data_type.h>
 #include <tvm/runtime/logging.h>
 #include <tvm/runtime/registry.h>
@@ -391,7 +391,7 @@ TVM_REGISTER_GLOBAL("tvm.contrib.cublas.cublasgemm").set_body([](TVMArgs args, T
     int n = args[3];
     int k = args[5];
     cublasHandle_t cublasH = nullptr;
-    CHECK_CUBLAS( cublasCreate(&cublasH) );
+    CHECK_CUBLAS_ERROR( cublasCreate(&cublasH) );
     const half alpha = 1.0;
     const half beta = 0.0;
 
@@ -431,30 +431,30 @@ TVM_REGISTER_GLOBAL("tvm.contrib.cublas.col2im").set_body([](TVMArgs args, TVMRe
 
 // relay端: COOBLOCKxDENSE
 // cuda kernel:DENSExCOOBLOCK
-TVM_REGISTER_GLOBAL("tvm.contrib.cublas.wmma.cooblockxdense").set_body([](TVMArgs args, TVMRetValue* ret) {
-  DLTensor* A = args[0];
+// TVM_REGISTER_GLOBAL("tvm.contrib.cublas.wmma.cooblockxdense").set_body([](TVMArgs args, TVMRetValue* ret) {
+//   DLTensor* A = args[0];
 
-  if (TypeMatch(A->dtype, kDLFloat, 16)){
-    DLTensor* A = args[0];
-    DLTensor* B = args[1];
-    DLTensor* B_x = args[2];
-    DLTensor* B_y = args[3];
-    DLTensor* out = args[4];
-    int B_num = args[5];
-    int M = args[7];
-    int N = args[6];
-    int K = args[8];
+//   if (TypeMatch(A->dtype, kDLFloat, 16)){
+//     DLTensor* A = args[0];
+//     DLTensor* B = args[1];
+//     DLTensor* B_x = args[2];
+//     DLTensor* B_y = args[3];
+//     DLTensor* out = args[4];
+//     int B_num = args[5];
+//     int M = args[7];
+//     int N = args[6];
+//     int K = args[8];
 
-    auto A_ptr = reinterpret_cast<half*>(static_cast<char*>(A->data) + A->byte_offset);
-    auto B_ptr = reinterpret_cast<half*>(static_cast<char*>(B->data) + B->byte_offset);
-    auto B_x_ptr = reinterpret_cast<int*>(static_cast<char*>(B_x->data) + B_x->byte_offset);
-    auto B_y_ptr = reinterpret_cast<int*>(static_cast<char*>(B_y->data) + B_y->byte_offset);
-    auto C_ptr = reinterpret_cast<half*>(static_cast<char*>(out->data) + out->byte_offset);
+//     auto A_ptr = reinterpret_cast<half*>(static_cast<char*>(A->data) + A->byte_offset);
+//     auto B_ptr = reinterpret_cast<half*>(static_cast<char*>(B->data) + B->byte_offset);
+//     auto B_x_ptr = reinterpret_cast<int*>(static_cast<char*>(B_x->data) + B_x->byte_offset);
+//     auto B_y_ptr = reinterpret_cast<int*>(static_cast<char*>(B_y->data) + B_y->byte_offset);
+//     auto C_ptr = reinterpret_cast<half*>(static_cast<char*>(out->data) + out->byte_offset);
 
-    // half* A, half* B, half* C, int _B_num, int* B_x, int* B_y, int M, int N, int K
-    wmma_dense_cooblock(A_ptr, B_ptr, C_ptr, B_num, B_x_ptr, B_y_ptr, M, N, K);
-  }
-});
+//     // half* A, half* B, half* C, int _B_num, int* B_x, int* B_y, int M, int N, int K
+//     wmma_dense_cooblock(A_ptr, B_ptr, C_ptr, B_num, B_x_ptr, B_y_ptr, M, N, K);
+//   }
+// });
 
 // relay端: DENSEXCOOBLOCK
 // cuda kernel:COOBLOCKxDENSE

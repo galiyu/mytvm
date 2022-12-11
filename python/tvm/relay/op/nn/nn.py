@@ -1598,7 +1598,7 @@ def matmul(tensor_a, tensor_b, units=None, out_dtype="", transpose_a=False, tran
         return dense(tensor_a, tensor_b, units, out_dtype)
     return _make.matmul(tensor_a, tensor_b, units, out_dtype, transpose_a, transpose_b)
 
-def contrib_wmma_dense_cooblock(tensor_a, tensor_b, Bx, By,Bnum,M,N,K, units=None, out_dtype="", transpose_a=False, transpose_b=False):
+def contrib_wmma_dense_cooblock(tensor_a, tensor_b, Bx, By, Bnum, M, N, K, units=None, out_dtype="", transpose_a=False, transpose_b=False):
     """Matmul operator.
     Applies a linear transformation. The A & B can be transposed.
 
@@ -1639,7 +1639,7 @@ def contrib_wmma_dense_cooblock(tensor_a, tensor_b, Bx, By,Bnum,M,N,K, units=Non
     if not transpose_a and transpose_b:
         # TODO(jcf94): Remove this when `nn.matmul` is finnaly ready
         return dense(tensor_a, tensor_b, units, out_dtype)
-    return _make.contrib_matmul_cooblock(tensor_a, tensor_b, Bx, By,Bnum,M,N,K, units, out_dtype, transpose_a, transpose_b)
+    return _make.contrib_matmul_cooblock(tensor_a, tensor_b, Bx, By, Bnum, M, N, K, units, out_dtype, transpose_a, transpose_b)
 
 
 def dense(data, weight, units=None, out_dtype=""):

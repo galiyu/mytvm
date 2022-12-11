@@ -230,13 +230,11 @@ def schedule_matmul_Cublas(outs):
 #===============matmul_cooblock=================
 # relay端: DENSEXCOOBLOCK
 def compute_matmul_cooblock(A, B, Bx, By, Bnum, M, N, K, units=None, out_dtype="", transpose_a=False, transpose_b=False):
-    A_shape = get_const_tuple(A.shape)
 
     out = te.extern(
         (M, N),
         [A, B, Bx, By],
         lambda ins, outs: tvm.tir.call_packed(
-            # "tvm.contrib.cublas.wmma.cooblockxdense",
             "tvm.contrib.cublas.wmma.densexcooblock",
             ins[0], ins[1], ins[2], ins[3], outs[0],
             Bnum, M, N, K

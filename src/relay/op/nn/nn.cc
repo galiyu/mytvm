@@ -255,12 +255,10 @@ bool MatmulBooRel(const Array<Type>& types, int num_inputs, const Attrs& attrs,
                const TypeReporter& reporter) {
   ICHECK_EQ(types.size(), 5);
   const auto* tensor_a = types[0].as<TensorTypeNode>();
-  // const auto* tensor_b = types[1].as<TensorTypeNode>();
   const auto* param = attrs.as<MatmulBooAttrs>();
   IndexExpr M = param->M;
   IndexExpr N = param->N;
   IndexExpr K = param->K;
-
 
   Array<IndexExpr> oshape({M,N});
 
