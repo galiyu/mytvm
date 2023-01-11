@@ -777,12 +777,22 @@ reg.register_strategy(
     "nn.contrib_matmul_cooblock",
     strategy.contrib_matmul_cooblock_strategy,
 )
+# my matmul csrblock related operators
+reg.register_strategy(
+    "nn.contrib_matmul_csrblock",
+    strategy.contrib_matmul_csrblock_strategy,
+)
 # my gemm cooblock related operators
 reg.register_strategy(
     "nn.contrib_gemm_cooblock",
     strategy.conv2d_gemm_cooblock_strategy,
 )
-# my matadd related operators
+# my gemm csrblock related operators
+reg.register_strategy(
+    "nn.contrib_gemm_csrblock",
+    strategy.conv2d_gemm_csrblock_strategy,
+)
+# my matmul related operators
 reg.register_strategy(
     "nn.contrib_matmul_cublas",
     strategy.contrib_matmul_cublas_strategy,

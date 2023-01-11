@@ -479,6 +479,18 @@ def conv2d_gemm_cooblock_strategy(attrs, inputs, out_type, target):
     )
     return strategy
 
+# conv2d_gemm_csrblock
+@override_native_generic_func("conv2d_gemm_csrblock_strategy")
+def conv2d_gemm_csrblock_strategy(attrs, inputs, out_type, target):
+    """conv2d_gemm_csrblock_strategy"""
+    strategy = _op.OpStrategy()
+    strategy.add_implementation(
+        wrap_compute_conv2d_cooblock(topi.cuda.compute_gemm_csrblock),
+        wrap_topi_schedule(topi.cuda.schedule_gemm_csrblock),
+        name="conv2d_gemm_csrblock_strategy.generic",
+    )
+    return strategy
+
 # conv2d_my_col2im
 @override_native_generic_func("conv2d_my_col2im_strategy")
 def conv2d_my_col2im_strategy(attrs, inputs, out_type, target):
@@ -1011,6 +1023,17 @@ def contrib_matmul_cooblock_strategy(attrs, inputs, out_type, target):
         wrap_compute_matmul_cooblock(topi.cuda.compute_matmul_cooblock),
         wrap_topi_schedule(topi.cuda.schedule_matmul_cooblock),
         name="contrib_matmul_cooblock.generic",
+    )
+    return strategy
+# contrib_matmul_csrblock
+@override_native_generic_func("contrib_matmul_csrblock_strategy")
+def contrib_matmul_csrblock_strategy(attrs, inputs, out_type, target):
+    """contrib_matmul_csrblock_strategy"""
+    strategy = _op.OpStrategy()
+    strategy.add_implementation(
+        wrap_compute_matmul_cooblock(topi.cuda.compute_matmul_csrblock),
+        wrap_topi_schedule(topi.cuda.schedule_matmul_csrblock),
+        name="contrib_matmul_csrblock.generic",
     )
     return strategy
 # contrib_matmul_cublas

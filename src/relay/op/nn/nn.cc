@@ -293,7 +293,69 @@ RELAY_REGISTER_OP("nn.contrib_matmul_cooblock")
 
 // ------------------- relay.nn.contrib_matmul_cooblock
 
-// ------------------- relay.nn.contrib_my_im2col
+
+// ------------------- relay.nn.contrib_matmul_csrblock
+TVM_REGISTER_NODE_TYPE(MatmulBooAttrs);
+
+Expr MakeMyMatmulBsr(Expr tensor_a, Expr tensor_b, Expr Bx, Expr Bindex, int Bnum, int M, int N, int K, IndexExpr units, DataType out_dtype, bool transpose_a,
+                bool transpose_b) {
+  auto attrs = make_object<MatmulBooAttrs>();
+  attrs->Bnum = Bnum;
+  attrs->M = M;
+  attrs->N = N;
+  attrs->K = K;
+  attrs->units = units;
+  attrs->out_dtype = out_dtype;
+  attrs->transpose_a = transpose_a;
+  attrs->transpose_b = transpose_b;
+  static const Op& matmul_op = Op::Get("nn.contrib_matmul_csrblock");
+  return Call(matmul_op, {tensor_a, tensor_b, Bx, Bindex}, Attrs(attrs), {});
+}
+
+template <typename AttrType>
+bool MatmulBsrRel(const Array<Type>& types, int num_inputs, const Attrs& attrs,
+               const TypeReporter& reporter) {
+  ICHECK_EQ(types.size(), 5);
+  const auto* tensor_a = types[0].as<TensorTypeNode>();
+  const auto* param = attrs.as<MatmulBooAttrs>();
+  IndexExpr M = param->M;
+  IndexExpr N = param->N;
+  IndexExpr K = param->K;
+
+  Array<IndexExpr> oshape({M,N});
+
+  DataType out_dtype = param->out_dtype;
+  if (out_dtype.bits() == 0) {
+    out_dtype = tensor_a->dtype;
+  }
+  // assign output type
+  reporter->Assign(types[4], TensorType(oshape, out_dtype));
+  return true;
+}
+
+TVM_REGISTER_GLOBAL("relay.op.nn._make.contrib_matmul_csrblock").set_body_typed(MakeMyMatmulBsr);
+
+RELAY_REGISTER_OP("nn.contrib_matmul_csrblock")
+    .describe(R"code(Applies a linear transformation: :math:`C = A * B`. A & B can be transposed.
+
+- **tensor_a**: `(x1, x2, ..., xn, input_dim)` or `(x1, x2, ..., input_dim, xn)`
+- **tensor_b**: `(input_dim, units)` or `(units, input_dim)`
+- **out**: `(x1, x2, ..., xn, units)`.
+
+)code" TVM_ADD_FILELINE)
+    .set_attrs_type<MatmulBooAttrs>()
+    .set_num_inputs(4)
+    .add_argument("tensor_a", "nD Tensor", "The first input Tensor.")
+    .add_argument("tensor_b", "2D Tensor", "The second input Tensor.")
+    .add_argument("Bx", "1D Tensor", "The 3rd input Tensor.")
+    .add_argument("Bindex", "1D Tensor", "The 4th input Tensor.")
+    .set_support_level(1)
+    .add_type_rel("MatmulBoo", MatmulBsrRel<MatmulBooAttrs>)
+    .set_attr<TOpPattern>("TOpPattern", kOutEWiseFusable);
+
+// ------------------- relay.nn.contrib_matmul_csrblock
+
+// ------------------- relay.nn.contrib_my_conv2d
 TVM_REGISTER_NODE_TYPE(Conv2DAttrs);
 
 Expr MakeMyConv2d(Expr data, Expr weight, Array<IndexExpr> strides, Array<IndexExpr> padding,
@@ -638,7 +700,91 @@ RELAY_REGISTER_OP("nn.contrib_gemm_cooblock")
     .add_type_rel("GemmBoo", ContribGemmBooRel)
     .set_attr<TOpPattern>("TOpPattern", kOutEWiseFusable);
 
-// ------------------- relay.nn.contrib_my_gemm
+// ------------------- relay.nn.contrib_gemm_cooblock
+
+// ------------------- relay.nn.contrib_gemm_csrblock
+TVM_REGISTER_NODE_TYPE(Conv2DAttrs);
+
+Expr MakeMyGemmBsr(Expr data, Expr weight, Expr Wx, Expr Windex, Array<IndexExpr> strides, Array<IndexExpr> padding,
+                       Array<IndexExpr> dilation, int groups, IndexExpr channels,
+                       Array<IndexExpr> kernel_size, tvm::String data_layout,
+                       tvm::String kernel_layout, tvm::String out_layout, DataType out_dtype) {
+  auto attrs = make_object<Conv2DAttrs>();
+  attrs->strides = std::move(strides);
+  attrs->padding = std::move(padding);
+  attrs->dilation = std::move(dilation);
+  attrs->groups = groups;
+  attrs->channels = std::move(channels);
+  attrs->kernel_size = std::move(kernel_size);
+  attrs->data_layout = std::move(data_layout);
+  attrs->kernel_layout = std::move(kernel_layout);
+  attrs->out_layout = std::move(out_layout);
+  attrs->out_dtype = std::move(out_dtype);
+  static const Op& gemm_op = Op::Get("nn.contrib_gemm_csrblock");
+  return Call(gemm_op, {data, weight, Wx, Windex}, Attrs(attrs), {});
+}
+
+TVM_REGISTER_GLOBAL("relay.op.nn._make.contrib_gemm_csrblock").set_body_typed(MakeMyGemmBsr);
+
+bool ContribGemmBSRRel(const Array<Type>& types, int num_inputs, const Attrs& attrs,
+                   const TypeReporter& reporter) {
+  ICHECK_EQ(types.size(), 5);
+  const auto* data = types[0].as<TensorTypeNode>();
+  if (data == nullptr) return false;
+  static const Layout kNCHW("NCHW");
+  static const Layout kHWIO("HWIO");
+
+  const auto* param = attrs.as<Conv2DAttrs>();
+  ICHECK(param != nullptr);
+  const Layout in_layout(param->data_layout);
+  const Layout kernel_layout(param->kernel_layout);
+
+  const auto trans_in_layout = tir::BijectiveLayout(in_layout, kNCHW);
+
+  Array<IndexExpr> dshape_nhwc = data->shape;
+  IndexExpr N, P, Q, C, KH, KW;
+  N= dshape_nhwc[0];
+  P= dshape_nhwc[1];
+  Q= dshape_nhwc[2];
+  C= dshape_nhwc[3];
+  KH= dshape_nhwc[4];
+  KW= dshape_nhwc[5];
+
+  IndexExpr K = param->channels;
+  
+  IndexExpr SH = param->strides[0];
+  IndexExpr SW = param->strides[1];
+
+  ICHECK(param->kernel_size.defined() && param->channels.defined())
+      << "The kernel size and channels of a Conv must be set or inferred by previous pass";
+
+  ICHECK_EQ(param->kernel_size.size(), 2);
+  ICHECK_EQ(param->dilation.size(), 2);
+
+  Array<IndexExpr> oshape({N, K, P, Q});
+
+  DataType out_dtype = param->out_dtype;
+  if (out_dtype.bits() == 0) {
+    out_dtype = data->dtype;
+  }
+  reporter->Assign(types[4], TensorType(oshape, out_dtype));
+  return true;
+}
+
+RELAY_REGISTER_OP("nn.contrib_gemm_csrblock")
+    .describe(R"code(Gemm.
+)code" TVM_ADD_FILELINE)
+    .set_attrs_type<Conv2DAttrs>()
+    .set_num_inputs(4)
+    .add_argument("data", "Tensor", "The input tensor.")
+    .add_argument("weight", "Tensor", "The weight tensor.")
+    .add_argument("Wx", "Tensor", "The weightx tensor.")
+    .add_argument("Windex", "Tensor", "The weightindex tensor.")
+    .set_support_level(1)
+    .add_type_rel("GemmBSR", ContribGemmBooRel)
+    .set_attr<TOpPattern>("TOpPattern", kOutEWiseFusable);
+
+// ------------------- relay.nn.contrib_my_gemm_csrblock
 
 // ------------------- relay.nn.contrib_my_col2im
 TVM_REGISTER_NODE_TYPE(Conv2DAttrs);

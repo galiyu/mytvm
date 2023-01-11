@@ -483,6 +483,33 @@ TVM_REGISTER_GLOBAL("tvm.contrib.cublas.wmma.densexcooblock").set_body([](TVMArg
   }
 });
 
+// relay端: DENSEXCSRBLOCK
+// cuda kernel:CSRBLOCKxDENSE
+TVM_REGISTER_GLOBAL("tvm.contrib.cublas.wmma.densexcsrblock").set_body([](TVMArgs args, TVMRetValue* ret) {
+  DLTensor* A = args[0];
+
+  if (TypeMatch(A->dtype, kDLFloat, 16)){
+    DLTensor* A = args[0];
+    DLTensor* B = args[1];
+    DLTensor* B_x = args[2];
+    DLTensor* B_index = args[3];
+    DLTensor* out = args[4];
+    int B_num = args[5];
+    int M = args[6];
+    int N = args[7];
+    int K = args[8];
+
+    auto A_ptr = reinterpret_cast<half*>(static_cast<char*>(A->data) + A->byte_offset);
+    auto B_ptr = reinterpret_cast<half*>(static_cast<char*>(B->data) + B->byte_offset);
+    auto B_x_ptr = reinterpret_cast<int*>(static_cast<char*>(B_x->data) + B_x->byte_offset);
+    auto B_index_ptr = reinterpret_cast<int*>(static_cast<char*>(B_index->data) + B_index->byte_offset);
+    auto C_ptr = reinterpret_cast<half*>(static_cast<char*>(out->data) + out->byte_offset);
+
+    // half* A, half* B, half* C, int _B_num, int* B_x, int* B_index, int M, int N, int K
+    wmma_csrblock_dense(B_ptr, A_ptr, C_ptr, B_num, B_x_ptr, B_index_ptr, N, M, K);
+  }
+});
+
 TVM_REGISTER_GLOBAL("tvm.contrib.cublas.wmma.general").set_body([](TVMArgs args, TVMRetValue* ret) {
   DLTensor* A = args[0];
 

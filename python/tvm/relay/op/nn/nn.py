@@ -1641,6 +1641,49 @@ def contrib_wmma_dense_cooblock(tensor_a, tensor_b, Bx, By, Bnum, M, N, K, units
         return dense(tensor_a, tensor_b, units, out_dtype)
     return _make.contrib_matmul_cooblock(tensor_a, tensor_b, Bx, By, Bnum, M, N, K, units, out_dtype, transpose_a, transpose_b)
 
+def contrib_wmma_dense_csrblock(tensor_a, tensor_b, Bx, Bindex, Bnum, M, N, K, units=None, out_dtype="", transpose_a=False, transpose_b=False):
+    """Matmul operator.
+    Applies a linear transformation. The A & B can be transposed.
+
+    .. math::
+
+        `C = A * B`
+
+    Parameters
+    ----------
+    data : tvm.relay.Expr
+        The first input of the operator,
+        of shape `(d_1, d_2, ..., d_n, units_in)` or `(d_1, d_2, ..., units_in, d_n)`.
+
+    weight : tvm.relay.Expr
+        The second input expressions, 2-D matrix,
+        of shape `(units_in, units)` or `(units, units_in)`.
+
+    units : Optional[int]
+        Number of hidden units of the matmul transformation.
+
+    out_dtype : Optional[str]
+        Specifies the output data type for mixed precision matmul,
+        of shape `(d_1, d_2, ..., d_n, units)`.
+
+    transpose_a : Optional[bool] = False
+        Whether the data tensor is in transposed format.
+
+    transpose_b : Optional[bool] = False
+        Whether the weight tensor is in transposed format.
+
+    Returns
+    -------
+    result : tvm.relay.Expr
+        The computed result.
+    """
+    # Since currently `nn.dense` has better topi schedule support, will prefer to use `dense`
+    # rather than `matmul` for better compatibility
+    if not transpose_a and transpose_b:
+        # TODO(jcf94): Remove this when `nn.matmul` is finnaly ready
+        return dense(tensor_a, tensor_b, units, out_dtype)
+    return _make.contrib_matmul_csrblock(tensor_a, tensor_b, Bx, Bindex, Bnum, M, N, K, units, out_dtype, transpose_a, transpose_b)
+
 
 def dense(data, weight, units=None, out_dtype=""):
     """Dense operator.
@@ -2918,7 +2961,90 @@ def contrib_gemm_dense_cooblock(
         out_layout,
         out_dtype,
     )
-    
+
+def contrib_gemm_dense_csrblock(
+    data,
+    weight,
+    Wx,
+    Windex,
+    strides=(1, 1),
+    padding=(0, 0),
+    dilation=(1, 1),
+    groups=1,
+    channels=None,
+    kernel_size=None,
+    data_layout="NCHW",
+    kernel_layout="OIHW",
+    out_layout="",
+    out_dtype="",
+):
+    r"""2D convolution with gemm algorithm.
+
+    The basic parameters are the same as the ones in vanilla conv2d.
+    It assumes the weight is pre-transformed by nn.contrib_conv2d_gemm_weight_transform
+
+    Parameters
+    ----------
+    data : tvm.relay.Expr
+        The input data to the operator.
+
+    weight : tvm.relay.Expr
+        The weight expressions.
+
+    strides : tuple of int, optional
+        The strides of convolution.
+
+    padding : tuple of int, optional
+        The padding of convolution on both sides of inputs before convolution.
+
+    dilation : tuple of int, optional
+        Specifies the dilation rate to be used for dilated convolution.
+
+    groups : int, optional
+        Number of groups for grouped convolution.
+
+    channels : int, optional
+        Number of output channels of this convolution.
+
+    kernel_size : tuple of int, optional
+        The spatial of the convolution kernel.
+
+    data_layout : str, optional
+        Layout of the input.
+
+    kernel_layout : str, optional
+        Layout of the weight.
+
+    out_layout : str, optional
+        Layout of the output, by default, out_layout is the same as data_layout
+
+    out_dtype : str, optional
+        Specifies the output data type for mixed precision conv2d.
+
+    Returns
+    -------
+    result : tvm.relay.Expr
+        The computed result.
+    """
+    # convert 2-way padding to 4-way padding
+    padding = get_pad_tuple2d(padding)
+    return _make.contrib_gemm_csrblock(
+        data,
+        weight,
+        Wx,
+        Windex,
+        strides,
+        padding,
+        dilation,
+        groups,
+        channels,
+        kernel_size,
+        data_layout,
+        kernel_layout,
+        out_layout,
+        out_dtype,
+    )
+
 def contrib_my_col2im(
     data,
     weight,
@@ -2997,7 +3123,7 @@ def contrib_my_col2im(
         out_layout,
         out_dtype,
     )
-    
+
 def contrib_matmul_wmma(tensor_a, tensor_b, units=None, out_dtype="", transpose_a=False, transpose_b=False):
     return _make.contrib_matmul_wmma(tensor_a, tensor_b, units, out_dtype, transpose_a, transpose_b)
 

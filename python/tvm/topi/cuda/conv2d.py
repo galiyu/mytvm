@@ -151,7 +151,7 @@ def compute_gemm_cooblock(
     K = in_channel*k_h*k_w
     M = batch*out_w*out_h
     out = te.extern(
-        (batch, N, out_w, out_h),
+        (batch, out_channel, out_w, out_h),
         [data, kernel, Kx, Ky],
         lambda ins, outs: tvm.tir.call_packed("tvm.contrib.cublas.wmma.densexcooblock", ins[0], ins[1], ins[2], ins[3], outs[0],
         Bnum, M, N, K
@@ -162,6 +162,35 @@ def compute_gemm_cooblock(
     return out
 
 def schedule_gemm_cooblock(outs):
+    """Create the schedule for conv2d"""
+    return generic.schedule_extern(outs)
+
+def compute_gemm_csrblock(
+    data, kernel, Kx, Kindex, out_channel, kernel_size, strides, padding, dilation, groups=1, layout="NCHW", out_dtype="float16"
+):
+    batch, out_w, out_h, in_channel, k_w, k_h= get_const_tuple(data.shape)
+    # out_channel, _, k_h, k_w = get_const_tuple(kernel.shape)
+    Bnum = Kx.shape[0]
+
+    # M = P*Q*N
+    # K = KH*KW*C
+    # N = K
+    N = out_channel
+    K = in_channel*k_h*k_w
+    M = batch*out_w*out_h
+    out = te.extern(
+        (batch, out_channel, out_w, out_h),
+        [data, kernel, Kx, Kindex],
+        lambda ins, outs: tvm.tir.call_packed("tvm.contrib.cublas.wmma.densexcsrblock",
+        ins[0], ins[1], ins[2], ins[3], outs[0],
+        Bnum, M, N, K
+        ),
+        name="compute_gemm_csrblock",
+        dtype = "float16"
+    )
+    return out
+
+def schedule_gemm_csrblock(outs):
     """Create the schedule for conv2d"""
     return generic.schedule_extern(outs)
 
@@ -245,6 +274,26 @@ def compute_matmul_cooblock(A, B, Bx, By, Bnum, M, N, K, units=None, out_dtype="
     return out
 
 def schedule_matmul_cooblock(outs):
+    return generic.schedule_extern(outs)
+
+#===============matmul_csrblock=================
+# relay端: DENSEXCSRBLOCK
+def compute_matmul_csrblock(A, B, Bx, Bindex, Bnum, M, N, K, units=None, out_dtype="", transpose_a=False, transpose_b=False):
+
+    out = te.extern(
+        (M, N),
+        [A, B, Bx, Bindex],
+        lambda ins, outs: tvm.tir.call_packed(
+            "tvm.contrib.cublas.wmma.densexcsrblock",
+            ins[0], ins[1], ins[2], ins[3], outs[0],
+            Bnum, M, N, K
+        ),
+        name = "compute_matmul_csrblock",
+        dtype = "float16"
+    )
+    return out
+
+def schedule_matmul_csrblock(outs):
     return generic.schedule_extern(outs)
 
 
